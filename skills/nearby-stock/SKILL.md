@@ -3,6 +3,8 @@ name: nearby-stock
 description: Locate participating Drogasil branches reporting stock for a specific product and location.
 ---
 
+For “which Frontal 2 mg options does my closest store have?” or “quais opções de Frontal 2 mg tem na loja mais próxima?”, make one compare_products call with query “Frontal 2mg”, the shared origin, and store set to the literal string "nearest". Apply this pattern to other named medications too. Skip preliminary catalog searches, store discovery, and per-SKU stock calls. The server selects one nearest participating branch and checks every matching option there. Report the branch, the positive quantities and reference prices, and distinguish zero stock from unknown. If all quantities are zero, say so for that branch. If location is missing, ask for it first. A request for options across nearby stores uses compare_products with origin and omits store.
+
 When the user asks which medication options, alternatives, or generics are in stock, call compare_products with the original product query and shared origin. Use a single-SKU stock check for requests about a specific item, such as “Which pharmacies have brand-name Frontal?” or “Onde tem esse SKU?”.
 
 For “Qual loja perto do meu CEP tem duas caixas?”, obtain the product SKU and the user's shared CEP or coordinates. If given a product name, use search_products and select an exact presentation. Ask the user when strength, release type, or pack size leaves more than one plausible match.
