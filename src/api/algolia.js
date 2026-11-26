@@ -26,13 +26,19 @@ export async function searchProducts(query, opts = {}) {
   if (opts.page != null) request.page = opts.page;
   if (opts.filters) request.filters = opts.filters;
 
+  return runQuery(request);
+}
+
+async function runQuery(request) {
   const json = await postJson(
     `${BASE}/queries?category=web_search_sponsored_products`,
     { requests: [request] },
     ALGOLIA_HEADERS,
   );
   const result = json?.results?.[0] ?? {};
+  if (result.error || result.message) throw new Error(result.error ?? result.message);
   return {
+    ...(request.facets ? { facets: result.facets, stats: result.facets_stats } : {}),
     hits: result.hits ?? [],
     nbHits: result.nbHits ?? 0,
     page: result.page ?? 0,
@@ -54,4 +60,31 @@ export async function getProductsBySku(skus, attributes) {
   });
   const json = await postJson(`${BASE}/objects`, { requests }, ALGOLIA_HEADERS);
   return json?.results ?? [];
+}
+
+const nameFacets = ['details.activeIngredients.description', 'filters.Marca'];
+
+// Split saturated facet windows by numeric SKU so rare names remain discoverable.
+export async function medicationFacets() {
+  const names = nameFacets.map(() => new Set());
+  async function collect(range) {
+    const result = await runQuery({ indexName: INDEX_NAME, query: '', hitsPerPage: '0',
+      filters: ['categories.id=532', ...range].join(' AND '),
+      facets: [...nameFacets, 'sku'], maxValuesPerFacet: 1000 });
+    let saturated = false;
+    for (const [index, field] of nameFacets.entries()) {
+      const values = Object.keys(result.facets?.[field] ?? {});
+      for (const value of values) names[index].add(value);
+      saturated ||= values.length >= 1000;
+    }
+    if (saturated) {
+      const { min, max } = result.stats?.sku ?? {};
+      if (!(min < max)) throw new Error('Cannot enumerate medication name facets');
+      const mid = Math.floor((min + max) / 2);
+      await collect([`sku>=${min}`, `sku<=${mid}`]);
+      await collect([`sku>${mid}`, `sku<=${max}`]);
+    }
+  }
+  await collect([]);
+  return names.map(values => [...values]);
 }

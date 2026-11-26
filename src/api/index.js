@@ -12,3 +12,4 @@ export {
 } from './graphql.js';
 export { HttpError, NetworkError, VERSION } from './http.js';
 export { compareProducts } from './compare.js';
+export { medicationSearch } from './medications.js';

@@ -126,3 +126,22 @@ Both transports expose `search_products`, `get_products`, `find_nearby_stock`,
 and `compare_products`. Location is either `{"zipcode":"01001-000"}` or a pair
 of numeric `latitude` and `longitude` fields. Optional client skills are in `skills/`.
 Run transport tests with `npm test --prefix mcp`.
+
+### Medication queries and single-store availability
+
+The MCP search and comparison tools resolve names using the catalog's indexed medication
+ingredient and brand facets. The server caches the vocabulary for 24 hours. A curated set
+of international names and common misspellings supplements accent-insensitive matching
+and conservative phonetic/edit-distance suggestions. Responses expose corrections and
+ask for clarification when names are ambiguous. Unrecognized names fall back to catalog
+text search. Coverage depends on the retailer's ingredient metadata.
+
+For a broad ingredient comparison without an origin, `presentation_options` separates
+different packs, strengths, release types and forms. Select a reference SKU to narrow
+the comparison. A conflicting pack can appear under `excluded` with its reason.
+
+Pass `store: "nearest"` or a numeric branch ID as a string together with `origin` to
+`compare_products` to report every priced equivalent at one nearby participating
+branch. This includes zero quantities. A branch outside the upstream search window
+has status `outside_search_window`. One MCP call performs one upstream stock lookup
+per equivalent.
