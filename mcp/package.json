@@ -1,0 +1,19 @@
+{
+  "name": "drogasil-personal-mcp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "http": "node server.js --http",
+    "test": "node --test checks/*.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "drogasil-cli": "file:..",
+    "zod": "^4.0.0"
+  }
+}

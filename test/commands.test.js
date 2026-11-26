@@ -25,7 +25,12 @@ async function run(argv, responses = []) {
   const err = [];
   const stdoutWrite = process.stdout.write;
   const stderrWrite = process.stderr.write;
-  process.stdout.write = (s) => (out.push(String(s)), true);
+  // Node 20's test runner also sends binary protocol frames over stdout.
+  process.stdout.write = function (chunk, ...args) {
+    if (typeof chunk !== 'string') return stdoutWrite.call(this, chunk, ...args);
+    out.push(chunk);
+    return true;
+  };
   process.stderr.write = (s) => (err.push(String(s)), true);
   try {
     const code = await main(argv);

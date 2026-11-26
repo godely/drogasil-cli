@@ -104,3 +104,25 @@ if (result.status === 'matches') {
 Omit the origin for a catalog-only comparison, or pass numeric latitude and longitude.
 An ambiguous reference returns candidate products for selection by SKU. Other outcomes
 are `no_reference`, `no_prices`, and `no_stock`. Upstream failures reject the promise.
+
+## Personal MCP server
+
+Run `npm ci --prefix mcp` in the checkout. For a stdio client, set the command to
+your Node executable and pass the absolute path of `mcp/server.js` as its only argument.
+For local Streamable HTTP, run:
+
+```bash
+npm run http --prefix mcp
+# Optional alternate port
+npm run http --prefix mcp -- --port 8788
+```
+
+Set a local client's Streamable HTTP URL to `http://127.0.0.1:8787/mcp`.
+The listener binds to IPv4 loopback and serves stateless MCP POST requests.
+It has no user authentication and is intended for same-machine access.
+Cloud clients require a supported private tunnel or an authenticated deployment.
+
+Both transports expose `search_products`, `get_products`, `find_nearby_stock`,
+and `compare_products`. Location is either `{"zipcode":"01001-000"}` or a pair
+of numeric `latitude` and `longitude` fields. Optional client skills are in `skills/`.
+Run transport tests with `npm test --prefix mcp`.

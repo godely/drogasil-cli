@@ -21,3 +21,12 @@ jobs:
           cd "$RUNNER_TEMP/consumer"
           node --input-type=module -e "import { compareProducts } from 'drogasil-cli'; if (typeof compareProducts !== 'function') process.exit(1)"
           ./node_modules/.bin/drogasil compare --help
+  mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - run: npm ci --prefix mcp
+      - run: npm test --prefix mcp
