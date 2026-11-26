@@ -1,7 +1,9 @@
 ---
 name: compare-presentations
-description: Compare Drogasil catalog presentations and reference prices, optionally with nearby stock.
+description: Find branded and generic Drogasil medication options, compare prices, and check which options are in stock nearby.
 ---
+
+Treat “Frontal 2mg options in my area” and “opções de Frontal 2 mg perto de mim” as requests for the named product plus matching generics and other brands. Call compare_products first with the original medication name, strength, and any stated release type. Reuse a location the user already shared for this request. “Stock” adds the location filter. “Options” refers to products unless the user explicitly asks for store options, brand only, or different formulations. Keep XR separate from plain Frontal unless the user requests both.
 
 For “Compare os preços de Frontal 2 mg”, call compare_products with the full name and strength. Use a SKU if supplied. Include an origin only if the user supplied or explicitly shared one. A price-only comparison needs no location.
 

@@ -39,7 +39,7 @@ export function createServer() {
     { skus: z.array(sku).min(1).max(100) }, async ({ skus }) => ({
       products: (await getProductsBySku(skus)).map(product => product && productInfo(product)),
     }));
-  tool('find_nearby_stock', 'Look up reported branch quantities for one SKU, nearest first.',
+  tool('find_nearby_stock', 'Find store options for one specific SKU, nearest first. For medication options (matching brands and generics), use compare_products with the shared location.',
     { sku, origin, minimumQuantity: z.number().int().min(1).default(1) }, async ({ sku, origin, minimumQuantity }) => {
       const params = { ...origin, sku, quantity: minimumQuantity };
       let rows;
@@ -56,7 +56,7 @@ export function createServer() {
       }
       return { sku, stores, checkedAt: new Date().toISOString() };
     });
-  tool('compare_products', 'Compare matching catalog presentations by reference price. With a location, include stocked branches. If ambiguous, ask the user to choose a candidate SKU.',
+  tool('compare_products', 'Find medication options including matching brands and generics, cheapest reference price first. Use for “Frontal 2mg options in my area” with the original query and shared coordinates. Match the specified release type. With a location, include stocked branches. If ambiguous, ask the user to choose a candidate SKU.',
     { query, origin: origin.optional() }, async ({ query, origin }) => {
       const result = await compareProducts(query, { origin });
       if (result.status === 'ambiguous') return { status: result.status, candidates: result.candidates.map(productInfo) };
