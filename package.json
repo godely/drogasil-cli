@@ -1,0 +1,29 @@
+{
+  "name": "drogasil-cli",
+  "version": "0.1.0",
+  "description": "Read-only CLI for drogasil.com.br public APIs: product search, price lookup, nearby stock, store directory.",
+  "type": "module",
+  "bin": {
+    "drogasil": "./bin/drogasil.js"
+  },
+  "exports": {
+    ".": "./src/api/index.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "scripts": {
+    "start": "node ./bin/drogasil.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "drogasil",
+    "cli",
+    "pharmacy"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
+}
