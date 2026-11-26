@@ -1,0 +1,23 @@
+name: Test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  library:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 'lts/*']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+      - name: Install the packed library and CLI
+        run: |
+          tarball=$(npm pack --silent)
+          npm install --prefix "$RUNNER_TEMP/consumer" "$PWD/$tarball"
+          cd "$RUNNER_TEMP/consumer"
+          node --input-type=module -e "import { compareProducts } from 'drogasil-cli'; if (typeof compareProducts !== 'function') process.exit(1)"
+          ./node_modules/.bin/drogasil compare --help

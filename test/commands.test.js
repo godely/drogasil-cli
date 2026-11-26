@@ -196,3 +196,32 @@ test('compare resolves the plain brand, rejects presentation differences and sor
   assert.equal(result.code, 0);
   assert.deepEqual(JSON.parse(result.stdout).map(p => p.sku), [3, 1]);
 });
+
+test('location-aware comparison handles partial stock, empty stock and outages', async () => {
+  const base = {
+    sku: 1, name: 'Example', price: 20, filters: { 'Forma farmacêutica': 'Comprimidos' },
+    details: { quantidade: '30 Comprimidos', activeIngredients: [
+      { description: 'Example', dosageValue: 1, unitOfMeasurement: { name: 'mg' } },
+    ] },
+  };
+  const catalog = [{ results: [base] }, { results: [{ hits: [{ ...base, sku: 2, price: 10 }] }] }];
+  const args = ['compare', '1', '--cep', '01001-000', '--json'];
+  const empty = notFound('Filial próxima sem estoque');
+  const rows = { data: { getNearbyStockByZipCode: [
+    { branch: { id: 101, distanceKMFromSearch: 0.2 }, stocks: [{ sku: 1, quantity: 2 }] },
+  ] } };
+  const partial = await run(args, [...catalog, empty, rows]);
+  assert.equal(partial.code, 0);
+  assert.deepEqual(JSON.parse(partial.stdout).map(p => [p.sku, p.stores[0].quantity]), [[1, 2]]);
+  const absent = await run(args, [...catalog, empty, empty]);
+  assert.equal(absent.code, 3);
+  assert.deepEqual(JSON.parse(absent.stdout), []);
+  const outage = await run(args, [...catalog, empty, new Error('offline')]);
+  assert.equal(outage.code, 2);
+  assert.equal(outage.stdout, '');
+  const ambiguous = await run(['compare', 'Example', '--json'], [
+    { results: [{ hits: [base, { ...base, sku: 3, details: { ...base.details, quantidade: '60 Comprimidos' } }] }] },
+  ]);
+  assert.equal(ambiguous.code, 3);
+  assert.match(ambiguous.stderr, /Presentation unclear/);
+});

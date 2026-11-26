@@ -11,3 +11,4 @@ export {
   LOGOTYPE,
 } from './graphql.js';
 export { HttpError, NetworkError, VERSION } from './http.js';
+export { compareProducts } from './compare.js';

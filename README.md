@@ -86,3 +86,21 @@ in the `COMMANDS` map in `src/cli.js`.
 - The outward walk over the store directory for scarce products. `src/geo.js` has the
   haversine it needs and `listStores()` provides the map.
 - Caching of the store directory and the non-participating branch set.
+
+## Library
+
+Install from GitHub with `npm install github:godely/drogasil-cli`. The equivalent of
+`drogasil compare "Frontal 2mg" --cep 01001-000` is:
+
+```js
+import { compareProducts } from 'drogasil-cli';
+
+const result = await compareProducts('Frontal 2mg', { origin: { zipcode: '01001-000' } });
+if (result.status === 'matches') {
+  for (const product of result.products) console.log(product.name, product.price, product.stores);
+}
+```
+
+Omit the origin for a catalog-only comparison, or pass numeric latitude and longitude.
+An ambiguous reference returns candidate products for selection by SKU. Other outcomes
+are `no_reference`, `no_prices`, and `no_stock`. Upstream failures reject the promise.
