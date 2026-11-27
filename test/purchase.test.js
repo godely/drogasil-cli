@@ -157,3 +157,10 @@ test('brand consent precedes stock, restricts both plans and pins the requested 
   assert.deepEqual(calls, ['11']);
   assert.equal(brand.status, 'unfilled');
 });
+
+test('explicit brand can include a qualifier from the matched commercial presentation', async t => {
+  const { products } = fixture(t);
+  products[0].name = 'Alpha GTS 1mg 10 comprimidos';
+  const result = await planPurchase([{ query: 'Alpha GTS', brand: 'Alpha GTS', includeGenerics: false }], { origin });
+  assert.deepEqual(result.tables[0].rows.map(p => p.sku), ['11']);
+});

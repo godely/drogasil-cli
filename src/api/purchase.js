@@ -80,8 +80,11 @@ async function prepareItem(item, label, catalog, expandSku) {
   // A literal SKU is a purchase preference. compareProducts itself still
   // expands exact SKUs for existing catalog-comparison callers.
   const requiredSku = item.selectedSku ?? (!expandSku && /^\d+$/.test(item.query) ? item.query : null);
+  const namedPresentation = p => brandSkus?.includes(String(p.sku)) && result.requestedBrandName &&
+    fold(item.brand).startsWith(fold(result.requestedBrandName) + ' ') &&
+    (fold(p.name) + ' ').startsWith(fold(item.brand) + ' ');
   const matchesBrand = p => [p.brand, p.filters?.Marca, p.details?.marca].flat()
-    .some(name => name && fold(name) === fold(item.brand));
+    .some(name => name && fold(name) === fold(item.brand)) || namedPresentation(p);
   if (item.brand && item.includeGenerics !== undefined && fold(item.brand) !== fold(result.requestedBrandName ?? '')) {
     brandSkus = products.filter(matchesBrand).map(p => String(p.sku));
   }

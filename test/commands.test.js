@@ -233,3 +233,20 @@ test('location-aware comparison handles partial stock, empty stock and outages',
   assert.equal(ambiguous.code, 3);
   assert.match(ambiguous.stderr, /Presentation unclear/);
 });
+
+test('drops, concentration, pack volume and bottle counts constrain long brand queries', async () => {
+  const base = { sku: 913628, brand: 'Patz', name: 'PATZ GTS Zolpidem 10mg/ml Solução Gotas 20ml',
+    price: 80, filters: { 'Forma farmacêutica': 'Solução' }, details: { quantidade: '20ml',
+      activeIngredients: [{ description: 'Zolpidem', dosageValue: 10, unitOfMeasurement: { name: 'MG' } }] } };
+  const page = { results: [{ hits: [base], nbPages: 1 }] };
+  for (const query of ['Patz GTS', 'Patz GTS em gotas, frasco de 20 mL', 'Patz GTS 10 mg/mL 20 mL']) {
+    const r = await run(['compare', query, '--json'], [page, page]);
+    assert.equal(r.code, 0, query);
+    assert.deepEqual(JSON.parse(r.stdout).map(p => p.sku), [913628]);
+  }
+  for (const query of ['Patz GTS em gotas, frasco de 30 mL', 'Patz GTS comprimidos',
+    'Patz GTS 20 mg/mL', 'Patz GTS 2 frascos de 20 ml', 'Patz GTS XR']) {
+    const r = await run(['compare', query, '--json'], [page]);
+    assert.equal(r.code, 3, query);
+  }
+});

@@ -53,7 +53,26 @@ function normalize(value) {
 
 // Packaging prose can sit between the dosage and the count in a user's query.
 function catalogQuery(value) {
-  return value.replace(/\s*,?\s*\b(?:(?:caixa|embalagem)\s+(?:de|com)|com)\s+(?=\d+\s+(?:comprimidos?|c[áa]psulas?)\b)/giu, ' ').trim();
+  return value.replace(/\bem\s+(?=gotas?\b)/giu, '')
+    .replace(/\bfrasco\s+(?:de|com)\s+(?=\d+(?:[.,]\d+)?\s*m[lL]\b)/gu, (phrase, offset, text) =>
+      /\d\s*$/.test(text.slice(0, offset)) ? phrase : '')
+    .replace(/\s*,?\s*\b(?:(?:caixa|embalagem)\s+(?:de|com)|com)\s+(?=\d+\s+(?:comprimidos?|c[áa]psulas?)\b)/giu, ' ').trim();
+}
+
+function presentationTokens(value) {
+  return normalize(value).replace(/\s*\/\s*/g, '/')
+    .replace(/\b(\d+)\s+(comprimidos?|capsulas?|frascos?)\b/g, '$1$2')
+    .replace(/(comprimido|capsula|frasco)s\b/g, '$1')
+    .match(/[\p{L}\d.]+(?:\/[\p{L}\d.]+)?/gu) ?? [];
+}
+
+function matchesRequest(product, query) {
+  const requested = presentationTokens(query);
+  const evidence = presentationTokens([product.name, product.filters?.['Forma farmacêutica'],
+    product.filters?.['Via de administração'], product.details?.quantidade, ...(product.details?.dosageList ?? [])].join(' '));
+  const packVolumes = presentationTokens(product.details?.quantidade).filter(t => /^\d+(?:\.\d+)?ml$/.test(t));
+  return requested.length > 0 && requested.every(term =>
+    evidence.includes(term) && (!/^\d+(?:\.\d+)?ml$/.test(term) || !packVolumes.length || packVolumes.includes(term)));
 }
 
 function describePresentation(product) {
@@ -79,7 +98,9 @@ function describePresentation(product) {
   }
   const label = normalize([product.name, product.brand, form, pack].join(' '));
   const markers = label.match(/\b(?:xr|xl|sr|cr|er|dr|la|lp|mr|retard|chrono|depot|orodispersivel|sublingual|mastigavel|efervescente|gastrorresistente|liberacao (?:prolongada|modificada|controlada|retardada|lenta|bifasica))\b/g) ?? [];
-  const signature = JSON.stringify([doses.sort(), form, pack, normalize(product.filters?.['Via de administração']), [...new Set(markers)].sort()]);
+  // Titles disambiguate liquid concentrations and bottle counts missing from structured doses.
+  const liquidDetails = presentationTokens(product.name).filter(t => t.includes('/') || /^\d+frasco$/.test(t) || t === 'gotas');
+  const signature = JSON.stringify([liquidDetails.sort(), doses.sort(), form, pack, normalize(product.filters?.['Via de administração']), [...new Set(markers)].sort()]);
   return { key: missing.size ? null : signature, signature, missingFields: [...missing] };
 }
 
@@ -98,12 +119,7 @@ async function searchAll(query, filters) {
 
 async function referenceOptions(query) {
   if (/^\d+$/.test(query)) return (await getProductsBySku([query])).filter(Boolean);
-  const terms = normalize(query).match(/[\p{L}\d.]+/gu) ?? [];
-  if (!terms.length) return [];
-  const candidates = (await searchAll(query)).filter(product => {
-    const words = normalize(product.name).match(/[\p{L}\d.]+/gu) ?? [];
-    return terms.every(term => words.includes(term));
-  });
+  const candidates = (await searchAll(query)).filter(product => matchesRequest(product, query));
   const exact = candidates.filter(product => {
     const brandDose = [product.brand, ...(product.details?.dosageList ?? [])].join(' ');
     return [product.name, brandDose].some(value => normalize(value) === normalize(query));
@@ -131,13 +147,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
   if (resolved?.filters) {
     const suffix = catalogQuery(resolved.suffix);
     refs = await ingredientPresentations(query, { ...resolved, suffix }, includeUnpriced);
-    if (suffix) {
-      const terms = normalize(suffix).match(/[\p{L}\d.]+/gu) ?? [];
-      refs = refs.filter(p => {
-        const words = normalize([p.name, ...(p.details?.dosageList ?? [])].join(' ')).match(/[\p{L}\d.]+/gu) ?? [];
-        return terms.every(term => words.includes(term));
-      });
-    }
+    if (suffix) refs = refs.filter(product => matchesRequest(product, suffix));
   } else {
     refs = await referenceOptions(catalogQuery(query));
   }
