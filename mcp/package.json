@@ -14,6 +14,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "drogasil-cli": "file:..",
+    "paguemenos-cli": "https://codeload.github.com/godely/paguemenos-cli/tar.gz/492fa70520ec429a96e00742e5673b68304477a2",
     "zod": "^4.0.0"
   }
 }

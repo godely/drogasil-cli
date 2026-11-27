@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { collectSnapshot, readSnapshot, compareProducts, medicationSearch, getProductsBySku, searchStockWindows, stockQuantity, planPurchase, getMedicationInfo, productInfo, VERSION } from 'drogasil-cli';
+import { retailers } from './retailers.js';
+import { compareRetailPrices, collectSnapshot, readSnapshot, compareProducts, medicationSearch, getProductsBySku, searchStockWindows, stockQuantity, planPurchase, getMedicationInfo, productInfo, VERSION } from 'drogasil-cli';
 
 const sku = z.string().regex(/^\d+$/);
 const query = z.string().trim().min(1);
@@ -69,6 +70,9 @@ export function createServer() {
         ...productInfo(product), storeId: product.storeId, stockStatus: product.stockStatus, stores: product.stores?.map(store => storeInfo(store, store.quantity)),
       })) };
     });
+  tool('compare_pharmacy_prices', 'Compare the same exact pack across participating retailers. Supply a name, Drogasil SKU or GTIN and a user-supplied CEP. Rank only verified local offers. Online-only prices and optional matching generics are separate.',
+    { query, zipcode: z.string().regex(/^\d{5}-?\d{3}$/), includeGenerics: z.boolean().default(false) },
+    ({ query, zipcode, includeGenerics }) => compareRetailPrices(query, { zipcode, retailers, includeGenerics }));
   server.registerTool('collect_catalog_snapshot', {
     description: 'Start an explicitly requested bulk storefront collection. This saves an anonymous catalog dataset. Poll the same run ID with read_catalog_snapshot.',
     inputSchema: { queries: z.array(z.string().trim().min(1).max(150)).min(1).max(10), maxItems: z.number().int().min(1).max(1000).default(20) },
