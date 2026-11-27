@@ -1,13 +1,14 @@
 import { createInterface } from 'node:readline/promises';
+import { acceptExpansion, describeRange } from './stock-range.js';
 import { planPurchase, tableLabel } from '../api/purchase.js';
 import { normalizeOrigin } from '../api/compare.js';
 import { formatAddress, formatKm, formatPrice, printJson, table } from '../format.js';
 
 export const usage = `Usage: drogasil plan "<medication A>" ["<medication B>" ...] (--cep CEP | --lat LAT --lon LON)
-  [--store nearest] [--quantity A=2] [--sku A=123] [--brand B=Frontal] [--generic B] [--brand-only A | --include-generics A] [--json]
+  [--store nearest | --expand] [--quantity A=2] [--sku A=123] [--brand B=Frontal] [--generic B] [--brand-only A | --include-generics A] [--json]
 Quote each medication separately. Preferences apply to the indicated table letter.`;
 export const options = { cep: { type: 'string' }, lat: { type: 'string' }, lon: { type: 'string' },
-  store: { type: 'string' }, ...Object.fromEntries(['quantity', 'brand', 'generic', 'sku', 'brand-only', 'include-generics'].map(k =>
+  expand: { type: 'boolean' }, store: { type: 'string' }, ...Object.fromEntries(['quantity', 'brand', 'generic', 'sku', 'brand-only', 'include-generics'].map(k =>
     [k, { type: 'string', multiple: true }])) };
 
 const issues = { no_reference: 'Apresentação não encontrada', conflicting_release: 'Confirme o tipo de liberação',
@@ -67,6 +68,7 @@ export function renderPurchase(result) {
   if (!result.searchComplete || result.directoryFailed) out.push('Não foi possível confirmar a otimização completa de preço e percurso.');
   if (result.priceIncomplete) out.push('Há preços desconhecidos. A comparação de totais considera os preços disponíveis.');
   if (result.stockIncomplete && result.plans.length) out.push('Planos consideram somente estoque confirmado.');
+  if (result.scope !== 'nearest') out.push(describeRange(result));
   return out.join('\n').trimEnd() + '\n';
 }
 
@@ -107,7 +109,8 @@ export async function run(positionals, values) {
   try {
     const origin = normalizeOrigin({ zipcode: values.cep, latitude: values.lat, longitude: values.lon });
     let items = itemsFromArgs(positionals, values);
-    const opts = { origin, store: values.store, confirmBrands: true };
+    if (values.expand && values.store) throw new TypeError('--expand requires a search across stores');
+    const opts = { origin, store: values.store, expandSearch: values.expand, confirmBrands: true };
     let result = await planPurchase(items, opts);
     if (result.status === 'needs_generic_preference' && !values.json && process.stdin.isTTY && process.stdout.isTTY) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -127,6 +130,11 @@ export async function run(positionals, values) {
     if (values.json) printJson(result);
     else {
       process.stdout.write(renderPurchase(result));
+      if (await acceptExpansion(result.coverage, true)) {
+        opts.expandSearch = true;
+        result = await planPurchase(items, opts);
+        process.stdout.write(renderPurchase(result));
+      }
       if (items.length > 1 && process.stdin.isTTY && process.stdout.isTTY && result.tables.some(t => t.rows.some(p => p.option))) {
         const rl = createInterface({ input: process.stdin, output: process.stdout });
         try {

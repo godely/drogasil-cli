@@ -18,6 +18,7 @@ test('isNotFound recognises the 404 carried in extensions.exception', () => {
   ]);
   assert.equal(isNotFound(stock), true);
   assert.equal(isNotFound(address), true);
+  assert.equal(isNoNearbyStock(address), false);
   assert.equal(isNoNearbyStock(stock), true);
 
   const other = new GraphQLError([{ message: 'Parâmetro inválido', extensions: {} }]);

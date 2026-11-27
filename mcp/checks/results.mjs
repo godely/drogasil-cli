@@ -140,3 +140,37 @@ test('one information call answers several products with no pricing or stock req
   assert.deepEqual(result.structuredContent.results.map(r => r.query), ['111', '222']);
   assert.deepEqual(calls, ['111', '222']);
 });
+
+test('an all-zero purchase offers a 25 km follow-up and keeps the original CEP after consent', async t => {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (_url, { body }) => {
+    const { query, requests, variables } = JSON.parse(body);
+    if (requests) return Response.json({ results: [{ sku: '11', name: 'Example', price: 5, details: {} }] });
+    calls.push(query);
+    if (query.includes('stores(input')) return Response.json({ data: { stores: { items: [
+      { id: 1, address: { latitude: 0, longitude: 0 } },
+      { id: 2, address: { latitude: 0, longitude: 0.1 }, telephoneAreaCode: '81', telephone: '33334567' },
+    ] } } });
+    const wider = variables.lat != null;
+    const branch = { id: wider ? 2 : 1, businessName: wider ? 'Outra' : 'Perto', distanceKMFromSearch: 0 };
+    return Response.json({ data: { [wider ? 'getNearbyStockByLatLong' : 'getNearbyStockByZipCode']:
+      [{ branch, stocks: [{ sku: '11', quantity: wider ? 2 : 0 }] }] } });
+  });
+  const [local, remote] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'radius-check', version: '1' });
+  await createServer().connect(remote);
+  await client.connect(local);
+  t.after(() => client.close());
+  const args = { items: [{ query: '11' }], origin: { zipcode: '00000-000' } };
+  const plan = async extra => (await client.callTool({ name: 'plan_purchase', arguments: { ...args, ...extra } })).structuredContent;
+  const initial = await plan({});
+  assert.equal(initial.coverage.canExpand, true);
+  assert.equal(initial.expandedSearch, undefined);
+  assert.equal(calls.length, 1);
+  const expanded = await plan({ expandSearch: true });
+  assert.equal(expanded.coverage.canExpand, false);
+  assert.equal(expanded.expandedSearch.checkedStores, 2);
+  assert.equal(expanded.expandedSearch.stores[0].phone, '(81) 3333-4567');
+  assert.equal(expanded.tables[0].rows[0].store.quantity, 2);
+  assert.ok(expanded.tables[0].rows[0].store.distanceKm > 11);
+});

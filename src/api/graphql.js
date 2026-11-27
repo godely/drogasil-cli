@@ -31,10 +31,8 @@ export function isNotFound(err) {
 
 /** True when the API says no branch in the searched window met the threshold. */
 export function isNoNearbyStock(err) {
-  return (
-    isNotFound(err) ||
-    (err instanceof GraphQLError && err.errors.some((e) => /sem estoque/i.test(e.message ?? '')))
-  );
+  return err instanceof GraphQLError && err.errors.length > 0 &&
+    err.errors.every(e => /sem estoque/i.test(e.message ?? ''));
 }
 
 /**
@@ -128,7 +126,7 @@ export async function listStores() {
   for (let page = 1; ; page++) {
     const data = await gql(
       `{ stores(input: { currentPage: ${page}, pageSize: ${STORES_PAGE_SIZE} }) {
-          items { id storeName address { street number cityId latitude longitude } }
+          items { id storeName telephone telephoneAreaCode address { street number cityId latitude longitude } }
         } }`,
     );
     const batch = data?.stores?.items ?? [];

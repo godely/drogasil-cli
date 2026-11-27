@@ -1,7 +1,8 @@
 import { compareProducts, normalizeOrigin } from './compare.js';
-import { getNearbyStockByLatLong, getNearbyStockByZipCode, GraphQLError, listStores } from './graphql.js';
+import { listStores } from './graphql.js';
 import { productInfo, brandOptions } from './product-info.js';
 import { fold, resolveMedication } from './medications.js';
+import { searchStockWindows, stockQuantity } from './stock-search.js';
 import { optimizePlans } from './purchase-plans.js';
 
 export function tableLabel(index) {
@@ -33,26 +34,16 @@ function memoizeRequest(read) {
   };
 }
 
-async function inventory(sku, origin) {
-  let rows;
-  try {
-    rows = origin.zipcode ? await getNearbyStockByZipCode({ ...origin, sku }) :
-      await getNearbyStockByLatLong({ ...origin, sku });
-  } catch (error) {
-    if (error instanceof GraphQLError && error.errors.every(e => /sem estoque/i.test(e.message))) {
-      return { stores: [], emptyConfirmed: true };
-    }
-    return { stores: [], failed: true };
-  }
-  const stores = rows.map(({ branch, stocks }) => {
-    const quantity = stocks?.find(s => String(s.sku) === sku)?.quantity;
+function inventory(sku, { rows, failed, emptyConfirmed }, partial) {
+  const stores = rows.map(row => {
+    const { branch } = row;
     const distance = branch.distanceKMFromSearch;
     return { id: String(branch.id), name: branch.businessName, address: branch.address,
       distanceKm: distance != null && distance !== '' && Number.isFinite(Number(distance)) ? Number(distance) : null,
-      quantity: Number.isSafeInteger(quantity) && quantity >= 0 ? quantity : null };
+      quantity: stockQuantity(row, sku) };
   });
   stores.sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
-  return { stores };
+  return { stores, failed, emptyConfirmed, partial };
 }
 
 function catalogCandidates(result) {
@@ -116,7 +107,7 @@ function populate(table, products, stocks, fixed, nearestId, choices) {
     if (nearest || fixed) table.rows.push({ ...product, option, store: nearest ?? window[0] ?? null });
     if (!nearest) {
       if (data.failed) table.failed.push(product);
-      else if (window.some(s => s.quantity == null) || (!window.length && (fixed || !data.emptyConfirmed))) table.unknown.push(product);
+      else if (data.partial || window.some(s => s.quantity == null) || (!window.length && (fixed || !data.emptyConfirmed))) table.unknown.push(product);
       else table.unavailable.push(product);
       continue;
     }
@@ -140,7 +131,7 @@ async function branchCoordinates() {
   return coordinates;
 }
 
-export async function planPurchase(items, { origin, store, expandSku = false, confirmBrands = false } = {}) {
+export async function planPurchase(items, { origin, store, expandSku = false, confirmBrands = false, expandSearch = false } = {}) {
   origin = normalizeOrigin(origin);
   if (!origin) throw new TypeError('Supply a CEP or coordinates for a purchase plan');
   if (!Array.isArray(items) || !items.length) throw new TypeError('Supply at least one medication');
@@ -157,8 +148,17 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
   }
   const catalog = memoizeRequest(query => compareProducts(query, { resolveNames: true, includeUnpriced: true }));
   const prepared = await Promise.all(normalized.map((item, i) => prepareItem(item, tableLabel(i), catalog, expandSku)));
-  const skus = new Set(prepared.flatMap(({ products }) => products.map(p => String(p.sku))));
-  const stocks = new Map(await Promise.all([...skus].map(async sku => [sku, await inventory(sku, origin)])));
+  const minimums = new Map();
+  for (const { table, products } of prepared) {
+    for (const product of products) {
+      const sku = String(product.sku);
+      minimums.set(sku, Math.min(minimums.get(sku) ?? Infinity, table.quantity));
+    }
+  }
+  const { windows, coverage, expandedSearch } = await searchStockWindows(minimums, origin, {
+    expandSearch, allowExpansion: !store && prepared.every(p => p.products.length), tolerateErrors: true,
+  });
+  const stocks = new Map([...windows].map(([sku, window]) => [sku, inventory(sku, window, expandedSearch?.partial)]));
   const nearestStore = [...stocks.values()].find(data => data.stores.length)?.stores[0];
   const tables = prepared.map(p => p.table);
   const lines = prepared.map(({ table, products }) => {
@@ -193,10 +193,11 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
   }
   const covered = items.length === 1 ? eligible.length : (fewest ? items.length - fewest.unfilled.length : 0);
   return { status: covered === items.length ? 'complete' : covered ? 'partial' : 'unfilled',
+    coverage, ...(expandedSearch && { expandedSearch }),
     scope: store ?? 'nearest_stocked_per_option', checkedAt: new Date().toISOString(), tables,
     ...(store === 'nearest' && nearestStore ? { fixedBranchId: nearestStore.id } : {}),
     ...optimized, tradeoff, directoryFailed,
     ...(items.length > 1 ? { planGuidance: 'Use the exact plan label. Describe travel and stops only for the pickups in a returned plan. Each table row hides other stocked branches. For unselected alternatives, offer the option ID and wait for a preference before stating their stop count, itinerary or distance.' } : {}),
-    stockIncomplete: tables.some(t => t.unknown.length || t.failed.length || t.status === 'catalog_lookup_failed'),
+    stockIncomplete: Boolean(expandedSearch?.partial) || tables.some(t => t.unknown.length || t.failed.length || t.status === 'catalog_lookup_failed'),
     priceIncomplete: eligible.some(line => line.choices.some(c => !Number.isFinite(c.cost))) };
 }

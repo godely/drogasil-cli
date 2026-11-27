@@ -1,13 +1,9 @@
-import {
-  getNearbyStockByLatLong,
-  getNearbyStockByZipCode,
-  getProductsBySku,
-  isNoNearbyStock,
-} from '../api/index.js';
+import { searchStockWindows, stockQuantity } from '../api/index.js';
+import { acceptExpansion, describeRange } from './stock-range.js';
 import { parseCoords } from '../geo.js';
 import { printJson, table, formatKm, formatAddress, formatHours } from '../format.js';
 
-export const usage = `Usage: drogasil stock <sku> (--lat LAT --lon LON | --cep CEP [--max-branches N]) [--min-qty N | --all] [--json]
+export const usage = `Usage: drogasil stock <sku> (--lat LAT --lon LON | --cep CEP [--max-branches N]) [--min-qty N | --all] [--expand] [--json]
 
 Nearby Drogasil stores holding <sku>, nearest first.
 
@@ -17,6 +13,7 @@ Options:
   --min-qty N         Only stores with at least N units (default 1)
   --all               Include zero-stock stores (omits the quantity filter)
   --max-branches N    CEP mode only: branches to search, 3..30 (default 30)
+  --expand            After zero nearby stock, search up to 25 km and show up to 10 stocked stores
   --json              Raw API rows`;
 
 export const options = {
@@ -24,6 +21,7 @@ export const options = {
   lon: { type: 'string' },
   cep: { type: 'string' },
   'min-qty': { type: 'string' },
+  expand: { type: 'boolean' },
   all: { type: 'boolean', default: false },
   'max-branches': { type: 'string' },
 };
@@ -61,31 +59,35 @@ export async function run(positionals, values) {
     }
   }
 
-  let rows;
-  try {
-    if (hasPoint) {
-      const { latitude, longitude } = parseCoords(values.lat, values.lon);
-      rows = await getNearbyStockByLatLong({ sku, latitude, longitude, quantity });
-    } else {
-      rows = await getNearbyStockByZipCode({ sku, zipcode: values.cep, quantity, maxBranches });
-    }
-  } catch (err) {
-    // "Filial próxima sem estoque" is an answer, not a failure.
-    if (isNoNearbyStock(err)) rows = [];
-    else throw err;
+  const origin = hasPoint ? parseCoords(values.lat, values.lon) : { zipcode: values.cep };
+  const output = values.json ? process.stderr : process.stdout;
+  // A filtered upstream request can return a different set of branches. Read the
+  // complete initial window so --max-branches, the quantities and the reach agree.
+  const search = expandSearch => searchStockWindows(new Map([[sku, quantity ?? 1]]), origin,
+    { maxBranches, expandSearch, verifySku: true });
+  let result = await search(Boolean(values.expand));
+  output.write(describeRange(result));
+  if (await acceptExpansion(result.coverage, !values.json)) {
+    result = await search(true);
+    output.write(describeRange(result));
   }
-
+  const window = result.windows.get(sku).rows;
+  let rows = values.all ? window : window.filter(row => stockQuantity(row, sku) >= quantity);
+  if (result.expandedSearch && !values.all) rows = rows.slice(0, result.expandedSearch.stores.length);
+  if (result.unknownSku) rows = [];
   if (values.json) printJson(rows);
-
-  if (rows.length === 0) {
-    // The stock API gives the same "sem estoque" answer for a SKU that does
-    // not exist. One Algolia lookup tells the two apart.
-    const [product] = await getProductsBySku([sku], ['sku']);
-    const message = product == null ? `Unknown SKU ${sku}.` : 'No nearby store has this product in stock.';
-    (values.json ? process.stderr : process.stdout).write(message + '\n');
+  if (result.unknownSku) {
+    output.write('Unknown SKU ' + sku + '.\n');
     return 3;
   }
-
+  if (!rows.length) {
+    let message = 'No nearby store has this product in stock.';
+    if (result.expandedSearch || result.coverage.stockUnknown) message = 'No qualifying stock confirmed among the stores checked.';
+    else if (quantity > 1) message = 'No nearby store reported enough units.';
+    output.write(message + '\n');
+    return result.expandedSearch?.partial || result.coverage.stockUnknown ? 2 : 3;
+  }
+  if (result.expandedSearch && !values.all) return 0;
   if (values.json) return 0;
 
   const out = rows.map((r) => [

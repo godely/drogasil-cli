@@ -15,11 +15,11 @@ const USAGE = `drogasil - read-only CLI for drogasil.com.br
 
 Usage:
   drogasil info "<medication or SKU>" ["<another medication>" ...] [--brazil] [--json]
-  drogasil plan "<medication A>" ["<medication B>" ...] (--cep CEP | --lat LAT --lon LON) [--json]
-  drogasil compare <medication name and strength | SKU> [--cep CEP | --lat LAT --lon LON] [--json]
+  drogasil plan "<medication A>" ["<medication B>" ...] (--cep CEP | --lat LAT --lon LON) [--expand] [--json]
+  drogasil compare <medication name and strength | SKU> [--cep CEP | --lat LAT --lon LON] [--expand] [--json]
   drogasil search <query> [--limit N] [--page N] [--json]
   drogasil product <sku> [<sku>...] [--json]
-  drogasil stock <sku> (--lat LAT --lon LON | --cep CEP [--max-branches N]) [--min-qty N | --all] [--json]
+  drogasil stock <sku> (--lat LAT --lon LON | --cep CEP [--max-branches N]) [--min-qty N | --all] [--expand] [--json]
   drogasil stores [--json]
 
 Options:

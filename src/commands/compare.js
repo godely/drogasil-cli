@@ -1,10 +1,12 @@
 import { compareProducts, normalizeOrigin } from '../api/compare.js';
 import { planPurchase, medicationType } from '../api/index.js';
+import { acceptExpansion, describeRange } from './stock-range.js';
 import { renderPurchase, purchaseExitCode } from './plan.js';
 import { formatPrice, printJson, table } from '../format.js';
 
-export const usage = 'Usage: drogasil compare <medication name and strength | SKU> [--cep CEP | --lat LAT --lon LON] [--store nearest] [--json]';
+export const usage = 'Usage: drogasil compare <medication name and strength | SKU> [--cep CEP | --lat LAT --lon LON] [--store nearest | --expand] [--json]';
 export const options = {
+  expand: { type: 'boolean' },
   store: { type: 'string' },
   cep: { type: 'string' },
   lat: { type: 'string' },
@@ -30,12 +32,26 @@ export async function run(positionals, values) {
     process.stderr.write('--store nearest requires a location.\n');
     return 1;
   }
+  if (values.expand && (!origin || values.store)) {
+    process.stderr.write('--expand requires a location and a search across stores.\n');
+    return 1;
+  }
   if (origin && !values.json) {
-    const result = await planPurchase([query], { origin, store: values.store, expandSku: true });
+    const opts = { origin, store: values.store, expandSku: true, expandSearch: values.expand };
+    let result = await planPurchase([query], opts);
     process.stdout.write(renderPurchase(result));
+    if (await acceptExpansion(result.coverage, true)) {
+      result = await planPurchase([query], { ...opts, expandSearch: true });
+      process.stdout.write(renderPurchase(result));
+    }
     return purchaseExitCode(result);
   }
-  const { status, products = [], candidates, missingFields } = await compareProducts(query, { origin, store: values.store });
+  const result = await compareProducts(query, { origin, store: values.store, expandSearch: values.expand });
+  const { status, products = [], candidates, missingFields } = result;
+  if (origin && !values.store) {
+    process.stderr.write(describeRange(result));
+    await acceptExpansion(result.coverage, false);
+  }
   if (values.json) printJson(products);
   if (status === 'incomplete_presentation') {
     process.stderr.write('Direct catalog hits only. Equivalence unverified: ' + missingFields.join(', ') + '.\n');
@@ -48,6 +64,7 @@ export async function run(positionals, values) {
       conflicting_release: 'Conflicting release types. Specify one presentation.',
       no_reference: 'No matching reference product.',
       no_prices: 'No matching products with a reference price.',
+      stock_unknown: 'Unable to confirm stock in all checked branches.',
       no_stock: 'No matching products with nearby stock.',
     };
     const message = status === 'ambiguous'

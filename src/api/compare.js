@@ -1,7 +1,8 @@
 import { getProductsBySku, searchProducts } from './algolia.js';
-import { getNearbyStockByLatLong, getNearbyStockByZipCode, normalizeCep, isNoNearbyStock } from './graphql.js';
+import { normalizeCep } from './graphql.js';
 import { resolveMedication, ingredientPresentations } from './medications.js';
 import { brandOptions } from './product-info.js';
+import { searchStockWindows, stockQuantity } from './stock-search.js';
 import { parseCoords } from '../geo.js';
 
 export function normalizeOrigin(origin) {
@@ -12,37 +13,33 @@ export function normalizeOrigin(origin) {
   throw new TypeError('use either --cep or both --lat and --lon');
 }
 
-async function compareNearby(products, origin, store) {
+async function compareNearby(products, origin, store, expandSearch, info) {
+  const minimums = new Map(products.map(p => [String(p.sku), 1]));
+  const { windows, coverage, expandedSearch } = await searchStockWindows(minimums, origin, { expandSearch, allowExpansion: !store });
+  info.coverage = coverage;
+  if (expandedSearch) info.expandedSearch = expandedSearch;
   let storeId = store;
   const available = [];
   for (const product of products) {
-    const request = { ...origin, sku: product.sku, quantity: store ? undefined : 1 };
-    let rows;
-    try {
-      rows = origin.zipcode
-        ? await getNearbyStockByZipCode(request)
-        : await getNearbyStockByLatLong(request);
-    } catch (err) {
-      if (!store && isNoNearbyStock(err)) continue;
-      throw err;
-    }
+    const { rows } = windows.get(String(product.sku));
     if (store) {
       if (storeId === 'nearest') {
         if (!rows.length) throw new Error('Unable to identify the nearest participating store');
         storeId = String(rows[0].branch.id);
       }
       const row = rows.find(r => String(r.branch.id) === storeId);
-      const stock = row?.stocks?.find(item => String(item.sku) === String(product.sku));
+      const quantity = row ? stockQuantity(row, String(product.sku)) : null;
       available.push({ ...product, storeId, stockStatus: !row ? 'outside_search_window' :
-        stock?.quantity == null ? 'unknown' : stock.quantity > 0 ? 'in_stock' : 'out_of_stock',
-        stores: row ? [{ ...row.branch, quantity: stock?.quantity ?? null }] : [] });
+        quantity == null ? 'unknown' : quantity > 0 ? 'in_stock' : 'out_of_stock',
+        stores: row ? [{ ...row.branch, quantity }] : [] });
       continue;
     }
     const stores = [];
-    for (const { branch, stocks } of rows) {
-      const stock = stocks?.find(item => String(item.sku) === String(product.sku));
-      if (stock?.quantity > 0) stores.push({ ...branch, quantity: stock.quantity });
+    for (const row of rows) {
+      const quantity = stockQuantity(row, String(product.sku));
+      if (quantity > 0) stores.push({ ...row.branch, quantity });
     }
+    if (expandedSearch) stores.splice(10);
     if (stores.length) available.push({ ...product, stores });
   }
   return available;
@@ -114,7 +111,7 @@ async function referenceOptions(query) {
   return exact.length ? exact : candidates;
 }
 
-export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false, includeGenerics } = {}) {
+export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false, includeGenerics, expandSearch = false } = {}) {
   if (!['string', 'number'].includes(typeof query) || !String(query).trim()) throw new TypeError('expected a medication name or SKU');
   origin = normalizeOrigin(origin);
   if (store && (!origin || (store !== 'nearest' && !/^\d+$/.test(store)))) {
@@ -161,7 +158,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
     const direct = refs.map(product =>
       Number.isFinite(product.price) && product.price > 0 ? product : { ...product, price: null });
     direct.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
-    const products = origin ? await compareNearby(direct, origin, store) : direct;
+    const products = origin ? await compareNearby(direct, origin, store, expandSearch, info) : direct;
     return { ...info, status: 'incomplete_presentation', missingFields, referenceSkus: direct.map(p => String(p.sku)),
       products, hint: 'Report these direct catalog hits and their available stock. Equivalence is unverified. Confirmation or retrying these SKUs cannot fill the missing catalog fields.' };
   }
@@ -199,6 +196,6 @@ export async function compareProducts(query, { origin = null, store, resolveName
   const sorted = [...matches.values()].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
   if (!sorted.length) return { ...info, status: 'no_prices', products: [], excluded };
   const options = brandOptions(sorted, info.requestedBrandSkus, includeGenerics);
-  const products = origin ? await compareNearby(options, origin, store) : options;
-  return { ...info, ...(excluded.length ? { excluded } : {}), status: products.length ? 'matches' : 'no_stock', products };
+  const products = origin ? await compareNearby(options, origin, store, expandSearch, info) : options;
+  return { ...info, ...(excluded.length ? { excluded } : {}), status: products.length ? 'matches' : (info.expandedSearch?.partial || info.coverage?.stockUnknown) ? 'stock_unknown' : 'no_stock', products };
 }

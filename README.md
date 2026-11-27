@@ -83,11 +83,13 @@ in the `COMMANDS` map in `src/cli.js`.
 | `DROGASIL_ALGOLIA_KEY` | public key | Override if the site rotates it |
 | `DROGASIL_ALGOLIA_APP` | `A7RGTHYMDQ` | Algolia application id |
 
-## Not yet implemented
+## Nearby search and the 25 km option
 
-- The outward walk over the store directory for scarce products. `src/geo.js` has the
-  haversine it needs and `listStores()` provides the map.
-- Caching of the store directory and the non-participating branch set.
+With a CEP, `stock --max-branches N` sets the initial number of participating branches to check (3–30, default 30). The coordinate endpoint chooses its own window. Its reach in kilometres depends on local store density. Drogasil also accepts `products: [{ sku, quantity: 1 }]` for a stock-only lookup. A filtered lookup can return a stocked branch farther away than the last branch in an unfiltered lookup with the same cap. To report an actual count and reach, the CLI reads the unfiltered branches and checks their quantities locally.
+
+If every requested SKU has an explicit zero at every checked branch, the CLI reports the branch count and distance to the farthest branch and offers to search up to **25 km**. Answer **sim** at the terminal prompt, or repeat the same `stock`, `compare` or `plan` command with `--expand`. A fixed-branch lookup, an unknown quantity or a positive quantity below a requested minimum does not trigger the offer.
+
+The library and MCP return `coverage.checkedStores`, `coverage.radiusKm` and `coverage.canExpand`. After consent, send the same origin, SKUs and preferences with `expandSearch: true`. The wider lookup uses directory coordinates and additional stock windows. It lists up to ten participating branches with enough stock, nearest first. Distances are straight-line estimates from the original location. For a CEP, the search uses the retailer’s distances to nearby branches to bound the distance to each new one. If it cannot verify coverage at the boundary or a stock lookup fails, it reports partial coverage. Branch phone numbers appear when the directory supplies them. Call to confirm availability before travelling.
 
 ## Library
 

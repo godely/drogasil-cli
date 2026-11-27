@@ -105,7 +105,7 @@ test('stock: "sem estoque" for a known SKU is exit 3, and --json still prints th
   const plain = await run(['stock', '110166', '--lat', '-23.55', '--lon', '-46.63'], [stockNone, known]);
   assert.equal(plain.code, 3);
   assert.match(plain.stdout, /No nearby store has this product in stock/);
-  assert.equal(plain.sent[0].variables.p[0].quantity, 1);
+  assert.equal(plain.sent[0].variables.p[0].quantity, undefined);
   assert.equal(plain.sent[0].variables.logo, 'DROGASIL');
 
   const json = await run(['stock', '110166', '--lat', '-23.55', '--lon', '-46.63', '--json'], [stockNone, known]);
@@ -144,9 +144,12 @@ test('stock: --all omits the quantity filter and renders zero-stock rows', async
           ],
         },
       },
+      { results: [{ sku: 110166 }] },
     ],
   );
   assert.equal(r.code, 0);
+  assert.match(r.stdout, /única filial/);
+  assert.match(r.stderr, /--expand/);
   assert.equal('quantity' in r.sent[0].variables.p[0], false);
   assert.match(r.stdout, /0\.105 km\s+X\s+0\s+07:00-22:00\s+open\s+R A, 1 - D, C - PE/);
 });

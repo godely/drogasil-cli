@@ -16,3 +16,4 @@ export { medicationSearch } from './medications.js';
 export { planPurchase } from './purchase.js';
 export { productInfo, medicationType } from './product-info.js';
 export { getMedicationInfo } from './medication-info.js';
+export { searchStockWindows, stockQuantity, STOCK_RADIUS_KM } from './stock-search.js';
