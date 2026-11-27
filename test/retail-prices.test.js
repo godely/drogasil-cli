@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { samePack, compareRetailPrices } from '../src/api/retail-prices.js';
+import { samePack, compareRetailPrices } from 'drogasil-cli';
 
 test('exact-pack quotes require a valid shared barcode and consistent presentation evidence', () => {
   const item = name => ({gtin:'7899547543766',name});
