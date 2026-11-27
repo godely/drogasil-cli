@@ -16,3 +16,12 @@ export function productInfo(product) {
   return { sku: String(product.sku), name: product.name, brand: product.brand,
     referencePriceBRL: product.price, pack: product.details?.quantidade, type: medicationType(product) };
 }
+
+// Input order is the catalog's price order. Partition it without changing order within each group.
+export function brandOptions(products, requestedSkus, includeGenerics) {
+  if (includeGenerics === undefined) return products;
+  const named = new Set(requestedSkus);
+  const branded = products.filter(p => named.has(String(p.sku)));
+  if (!includeGenerics || !named.size) return branded;
+  return branded.concat(products.filter(p => !named.has(String(p.sku)) && medicationType(p) === 'Genérico'));
+}

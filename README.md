@@ -19,6 +19,7 @@ Or run in place with `node ./bin/drogasil.js …`.
 | Command | Backend | What it does |
 |---|---|---|
 | `drogasil compare <name and strength or SKU>` | Algolia | Match catalog presentations and sort by reference price |
+| `drogasil info "<medication or SKU>" [--brazil]` | Medication catalog, Brazilian sources on request | Ingredients, presentations and prescription requirements |
 | `drogasil plan "<item A>" "<item B>" --cep CEP` | Catalog, stock and directory | Compare nearest stocked options, stops, round-trip distances and basket totals |
 | `drogasil search <query>` | Algolia | Name to SKU, with brand and reference price. `--page` starts at 1 |
 | `drogasil product <sku>…` | Algolia | Direct SKU lookup |
@@ -124,7 +125,7 @@ It has no user authentication and is intended for same-machine access.
 Cloud clients require a supported private tunnel or an authenticated deployment.
 
 Both transports expose `search_products`, `get_products`, `find_nearby_stock`,
-`compare_products`, and `plan_purchase`. Location is either `{"zipcode":"01001-000"}` or a pair
+`compare_products`, `get_medication_info`, and `plan_purchase`. Location is either `{"zipcode":"01001-000"}` or a pair
 of numeric `latitude` and `longitude` fields. Optional client skills are in `skills/`.
 Run transport tests with `npm test --prefix mcp`.
 
@@ -156,24 +157,43 @@ equivalents. Retrying the same SKU yields the same catalog limitation.
 including its zero or unknown quantity. Its default `stores` list contains branches
 meeting `minimumQuantity`. Pass `store: "nearest"` to limit the result to one branch.
 
+## Medication information
+
+```sh
+drogasil info Rivotril 66758
+drogasil info "Frontal XR" --brazil --json
+```
+
+```js
+import { getMedicationInfo } from 'drogasil-cli';
+
+const { results } = await getMedicationInfo(['Rivotril', '66758']);
+```
+
+`get_medication_info` accepts `queries` and an optional `scope` of `catalog` or `brazil`. It needs no location. Catalog rows include source links, strength per ingredient, form, route, release and pack. For prescription questions, `required`, `retained` and `form` are independent. A null field means *não confirmado*. Exact controlled forms carry the reviewed Brazilian rule and verification date. Coverage is partial.
+
+Brazilian results cite patient leaflets when available. For other names, the tool can verify forms in ANVISA's public registration restrictions file on demand. That file omits concentration units and pack identifiers. Its records establish documented forms only. Retailer listings are returned separately.
+
 ## Multi-medication shopping
 
 ```sh
 drogasil plan "Frontal 2 mg" "Tylenol 750 mg 20 comprimidos" --cep "$CEP"
-drogasil plan "Frontal 2 mg" "Tylenol 750 mg 20 comprimidos" --cep "$CEP" --generic A --quantity B=2
+drogasil plan "Frontal 2 mg" "Tylenol 750 mg 20 comprimidos" --cep "$CEP" --include-generics A --brand-only B --quantity B=2
 ```
 
 ```js
 import { planPurchase } from 'drogasil-cli';
 
-const items = [{ query: 'Frontal 2 mg' }, { query: 'Tylenol 750 mg 20 comprimidos', quantity: 2 }];
+const items = [{ query: 'Frontal 2 mg', includeGenerics: true }, { query: 'Tylenol 750 mg 20 comprimidos', includeGenerics: false, quantity: 2 }];
 const result = await planPurchase(items, { origin: { zipcode: process.env.CEP } });
 ```
 
-After updating an existing Claude connector, use **Refresh tools list** in its plugin menu and verify that `plan_purchase` appears.
+After updating an existing Claude connector, use **Refresh tools list** in its plugin menu and verify that `get_medication_info` and `plan_purchase` appear.
 
 The MCP tool `plan_purchase` takes the same `items`, `origin`, and optional `store: "nearest"` in one call. Each numbered row shows the closest branch reporting enough packs for that line. The planner uses all checked branches for its trips and accounts for stock shared by multiple lines. Each pickup fills one line at one branch. When the whole basket cannot be filled, the planner maximizes the number of complete lines and identifies the remainder.
 
 The fewest-stores plan breaks ties by straight-line round-trip distance and then reference price. The cheapest plan breaks ties by number of stores and then distance. Missing prices yield unknown totals. Store-to-store distances use the directory coordinates. The stock service supplies distances from the origin. Large searches have a bounded computation budget. Check `searchComplete`, `priceIncomplete` and `stockIncomplete` before describing a plan as optimal.
+
+The CLI and MCP ask once about unresolved commercial brands before checking stock. Active ingredients need no generic preference. Pass `includeGenerics: true` for the named brand followed by equivalent generics, or `false` for the named brand alone. A scripted CLI call without a decision returns `needs_generic_preference` and exit code 3. Library callers can enable the same check with `confirmBrands: true`.
 
 In an interactive terminal, choose from the displayed rows with a reply such as `A2, B1`. Press Enter to keep the initial plans. Programmatic clients resolve those IDs against the original response and resend the corresponding `selectedSku` for each chosen item on refresh. Terminal flags also support `--sku A=123`, `--brand A=Frontal`, and `--generic B`.

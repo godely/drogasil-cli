@@ -121,3 +121,22 @@ test('one purchase tool call returns both tables and a merged trip, including ca
   assert.deepEqual(data.tables.map(t => [t.rows[0].option, t.rows[0].type]), [['A1', 'Genérico'], ['B1', 'Genérico']]);
   assert.deepEqual(data.plans.map(p => [p.objective, p.roundTripKm, p.totalBRL]), [['both', 2, 15]]);
 });
+
+test('one information call answers several products with no pricing or stock request', async t => {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, { body }) => {
+    assert.match(url, /objects$/);
+    const [r] = JSON.parse(body).requests;
+    assert.ok(!r.attributesToRetrieve.includes('price'));
+    calls.push(r.objectID);
+    return Response.json({ results: [{ sku: r.objectID, name: 'Exemplo', details: {} }] });
+  });
+  const [local, remote] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'facts-check', version: '1' });
+  await createServer().connect(remote);
+  await client.connect(local);
+  t.after(() => client.close());
+  const result = await client.callTool({ name: 'get_medication_info', arguments: { queries: ['111', '222'] } });
+  assert.deepEqual(result.structuredContent.results.map(r => r.query), ['111', '222']);
+  assert.deepEqual(calls, ['111', '222']);
+});

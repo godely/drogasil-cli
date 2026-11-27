@@ -83,7 +83,7 @@ export function resolveName(query, names) {
     const terms = [...(ingredient ?? brand)].map(value => field + ':' + JSON.stringify(value));
     const filters = 'categories.id=532 AND (' + terms.join(' OR ') + ')';
     const interpreted = [key, suffix].filter(Boolean).join(' ');
-    return { kind: ingredient ? 'ingredient' : 'brand', suffix, filters,
+    return { kind: ingredient ? 'ingredient' : 'brand', name: [...(ingredient ?? brand)][0], suffix, filters,
       ...(interpreted !== input ? { interpretation: { original: query, interpreted } } : {}) };
   }
   return { kind: 'text', suffix: input };

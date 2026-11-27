@@ -23,6 +23,7 @@ export async function searchProducts(query, opts = {}) {
     query,
     hitsPerPage: String(opts.hitsPerPage ?? 20),
   };
+  if (opts.attributes) request.attributesToRetrieve = opts.attributes;
   if (opts.page != null) request.page = opts.page;
   if (opts.filters) request.filters = opts.filters;
 

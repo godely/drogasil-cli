@@ -1,7 +1,7 @@
 import { compareProducts, normalizeOrigin } from './compare.js';
 import { getNearbyStockByLatLong, getNearbyStockByZipCode, GraphQLError, listStores } from './graphql.js';
-import { productInfo } from './product-info.js';
-import { fold } from './medications.js';
+import { productInfo, brandOptions } from './product-info.js';
+import { fold, resolveMedication } from './medications.js';
 import { optimizePlans } from './purchase-plans.js';
 
 export function tableLabel(index) {
@@ -13,12 +13,15 @@ export function tableLabel(index) {
 function normalizeItem(input) {
   const item = typeof input === 'string' ? { query: input } : input;
   if (typeof item?.query !== 'string' || !item.query.trim()) throw new TypeError('Each item needs a medication name or SKU');
-  const { quantity = 1, brand, genericOnly = false, selectedSku } = item;
+  const { quantity = 1, brand, includeGenerics, genericOnly = false, selectedSku } = item;
   if (!Number.isSafeInteger(quantity) || quantity < 1) throw new TypeError('quantity must be a positive integer');
   if (brand != null && (typeof brand !== 'string' || !brand.trim())) throw new TypeError('brand must be a name');
   if (typeof genericOnly !== 'boolean') throw new TypeError('genericOnly must be a boolean');
+  if (includeGenerics !== undefined && (typeof includeGenerics !== 'boolean' || genericOnly || brand)) {
+    throw new TypeError('Use includeGenerics for a named medication, or specify brand/genericOnly separately');
+  }
   if (selectedSku != null && !/^\d+$/.test(selectedSku)) throw new TypeError('selectedSku must be numeric');
-  return { query: item.query.trim(), quantity, brand: brand?.trim(), genericOnly,
+  return { query: item.query.trim(), quantity, brand: brand?.trim(), genericOnly, ...(includeGenerics === undefined ? {} : { includeGenerics }),
     selectedSku: selectedSku == null ? undefined : String(selectedSku) };
 }
 
@@ -67,11 +70,13 @@ async function prepareItem(item, label, catalog, expandSku) {
   if (result.interpretation) table.interpretation = result.interpretation;
   if (result.missingFields) table.missingFields = result.missingFields;
   let products = result.products;
+  let brandSkus = result.requestedBrandSkus;
   const candidates = catalogCandidates(result);
   if (!products && item.selectedSku && candidates.some(c => c.sku === item.selectedSku)) {
     try {
       const selected = await catalog(item.selectedSku);
       products = selected.products;
+      if (brandSkus) brandSkus = brandSkus.filter(sku => sku === item.selectedSku);
       table.status = selected.status;
       if (selected.missingFields) table.missingFields = selected.missingFields;
     } catch { table.status = 'catalog_lookup_failed'; }
@@ -84,7 +89,8 @@ async function prepareItem(item, label, catalog, expandSku) {
   // A literal SKU is a purchase preference. compareProducts itself still
   // expands exact SKUs for existing catalog-comparison callers.
   const requiredSku = item.selectedSku ?? (!expandSku && /^\d+$/.test(item.query) ? item.query : null);
-  const filtered = products.filter(p => {
+  if (item.includeGenerics !== undefined) table.requestedBrandSkus = brandSkus ?? [];
+  const filtered = brandOptions(products, brandSkus, item.includeGenerics).filter(p => {
     if (requiredSku && String(p.sku) !== requiredSku) return false;
     if (item.genericOnly && productInfo(p).type !== 'Genérico') return false;
     if (!item.brand) return true;
@@ -130,13 +136,23 @@ async function branchCoordinates() {
   return coordinates;
 }
 
-export async function planPurchase(items, { origin, store, expandSku = false } = {}) {
+export async function planPurchase(items, { origin, store, expandSku = false, confirmBrands = false } = {}) {
   origin = normalizeOrigin(origin);
   if (!origin) throw new TypeError('Supply a CEP or coordinates for a purchase plan');
   if (!Array.isArray(items) || !items.length) throw new TypeError('Supply at least one medication');
   if (store != null && store !== 'nearest') throw new TypeError('store must be nearest or omitted');
+  const normalized = items.map(normalizeItem);
+  if (confirmBrands) {
+    const pendingBrands = [];
+    for (const [i, item] of normalized.entries()) {
+      if (item.includeGenerics !== undefined || item.genericOnly || item.brand || item.selectedSku) continue;
+      const name = await resolveMedication(item.query);
+      if (name.kind === 'brand') pendingBrands.push({ label: tableLabel(i), name: name.name });
+    }
+    if (pendingBrands.length) return { status: 'needs_generic_preference', pendingBrands, tables: [], plans: [] };
+  }
   const catalog = memoizeRequest(query => compareProducts(query, { resolveNames: true, includeUnpriced: true }));
-  const prepared = await Promise.all(items.map(normalizeItem).map((item, i) => prepareItem(item, tableLabel(i), catalog, expandSku)));
+  const prepared = await Promise.all(normalized.map((item, i) => prepareItem(item, tableLabel(i), catalog, expandSku)));
   const skus = new Set(prepared.flatMap(({ products }) => products.map(p => String(p.sku))));
   const stocks = new Map(await Promise.all([...skus].map(async sku => [sku, await inventory(sku, origin)])));
   const nearestStore = [...stocks.values()].find(data => data.stores.length)?.stores[0];

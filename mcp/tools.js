@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { compareProducts, medicationSearch, getProductsBySku, getNearbyStockByZipCode,
-  getNearbyStockByLatLong, isNoNearbyStock, planPurchase, productInfo, VERSION } from 'drogasil-cli';
+  getNearbyStockByLatLong, isNoNearbyStock, planPurchase, getMedicationInfo, productInfo, VERSION } from 'drogasil-cli';
 
 const sku = z.string().regex(/^\d+$/);
 const query = z.string().trim().min(1);
@@ -24,11 +24,14 @@ export function createServer() {
       return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     });
   }
-  tool('plan_purchase', 'Use one call for shopping requests with a shared origin. Send all medications together. Returns one numbered table per medication (nearest stocked branch per SKU), two purchase plans when possible, and their tradeoff. Use store="nearest" only for a fixed closest branch. Honor explicit preferences. For A2/B1 replies send the SKU from the previous table as selectedSku. Show Tipo, stock, reference price and straight-line distances. Report unavailable, unknown, failed and incomplete results separately.',
+  tool('get_medication_info', 'Use for factual questions about medication ingredients, strength, form, route, release, pack and prescription in Brazil. No origin, stock, prices or generic preference. Use scope=brazil for which presentations exist in Brazil and catalog for what Drogasil lists. Cite each product or verified source. Null means não confirmado. Brazil records have partial coverage. Keep required, retained, and form independent.',
+    { queries: z.array(query).min(1), scope: z.enum(['catalog', 'brazil']).default('catalog') },
+    ({ queries, scope }) => getMedicationInfo(queries, { scope }));
+  tool('plan_purchase', 'Before calling or quoting prices, ask once whether to include generics for the named brands only. “Opções” alone still needs a question. After the answer use one call with the shared origin. Send includeGenerics true or false on each named brand, except explicit genericOnly/brand/selectedSku. Ingredients need no preference. Send all medications together. Returns one numbered table per medication (nearest stocked branch per SKU), two purchase plans when possible, and their tradeoff. Use store="nearest" only for a fixed closest branch. Honor explicit preferences. For A2/B1 replies send the SKU from the previous table as selectedSku. Show Tipo, stock, reference price and straight-line distances. Report unavailable, unknown, failed and incomplete results separately.',
     { origin, store: z.literal('nearest').optional(), items: z.array(z.object({
       query, quantity: z.number().int().positive().optional(), selectedSku: sku.optional(),
-      brand: z.string().trim().min(1).optional(), genericOnly: z.boolean().optional(),
-    })).min(1) }, ({ items, origin, store }) => planPurchase(items, { origin, store }));
+      includeGenerics: z.boolean().optional(), brand: z.string().trim().min(1).optional(), genericOnly: z.boolean().optional(),
+    })).min(1) }, ({ items, origin, store }) => planPurchase(items, { origin, store, confirmBrands: true }));
   tool('search_products', 'Literal catalog lookup with medication spelling and language normalization. Brand searches stay within the brand. For all matching generics and brands, use compare_products.',
     { query, page: z.number().int().min(1).default(1), limit: z.number().int().min(1).max(100).default(20) },
     async ({ query, page, limit }) => {
@@ -59,8 +62,8 @@ export function createServer() {
         checkedAt: new Date().toISOString() };
     });
   tool('compare_products', 'Compare catalog presentations cheapest first. For shopping tables or more than one medication, use plan_purchase. Send the original spelling, strength, release and pack. For the closest participating branch, include origin and store="nearest" in one call. Report incomplete_presentation directly: these are direct catalog hits with unverified equivalence, and their branch quantities answer the stock question. Ask the user only for genuine ambiguity or conflicting specifications. Confirm before changing a requested strength or release.',
-    { query, origin: origin.optional(), store: z.union([z.literal('nearest'), sku]).optional() }, async ({ query, origin, store }) => {
-      const result = await compareProducts(query, { origin, store, resolveNames: true });
+    { query, includeGenerics: z.boolean().optional(), origin: origin.optional(), store: z.union([z.literal('nearest'), sku]).optional() }, async ({ query, origin, store, includeGenerics }) => {
+      const result = await compareProducts(query, { origin, store, includeGenerics, resolveNames: true });
       if (result.status === 'ambiguous') return { ...result, candidates: result.candidates?.map(productInfo) };
       if (result.groups) return { ...result, groups: result.groups.map(group => group.map(productInfo)) };
       return { ...result, checkedAt: new Date().toISOString(), products: result.products.map(product => ({

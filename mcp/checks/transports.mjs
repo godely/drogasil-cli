@@ -27,7 +27,7 @@ for (const kind of ['http', 'stdio']) {
     await client.connect(transport);
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map(tool => tool.name).sort(),
-      ['compare_products', 'find_nearby_stock', 'get_products', 'plan_purchase', 'search_products']);
+      ['compare_products', 'find_nearby_stock', 'get_medication_info', 'get_products', 'plan_purchase', 'search_products']);
     assert.ok(tools.every(tool => tool.annotations.readOnlyHint));
     const invalid = await client.callTool({ name: 'compare_products', arguments: { query: 'Example', origin: {} } });
     assert.ok(invalid.isError);

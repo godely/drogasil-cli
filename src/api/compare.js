@@ -1,6 +1,7 @@
 import { getProductsBySku, searchProducts } from './algolia.js';
 import { getNearbyStockByLatLong, getNearbyStockByZipCode, normalizeCep, isNoNearbyStock } from './graphql.js';
 import { resolveMedication, ingredientPresentations } from './medications.js';
+import { brandOptions } from './product-info.js';
 import { parseCoords } from '../geo.js';
 
 export function normalizeOrigin(origin) {
@@ -113,7 +114,7 @@ async function referenceOptions(query) {
   return exact.length ? exact : candidates;
 }
 
-export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false } = {}) {
+export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false, includeGenerics } = {}) {
   if (!['string', 'number'].includes(typeof query) || !String(query).trim()) throw new TypeError('expected a medication name or SKU');
   origin = normalizeOrigin(origin);
   if (store && (!origin || (store !== 'nearest' && !/^\d+$/.test(store)))) {
@@ -126,7 +127,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
     return { status: 'conflicting_release', products: [],
       hint: 'Ask which release the user intends. Stock has not been checked for either presentation.' };
   }
-  const resolved = resolveNames ? await resolveMedication(query) : null;
+  const resolved = (resolveNames || includeGenerics !== undefined) ? await resolveMedication(query) : null;
   if (resolved?.status === 'ambiguous') return resolved;
   const info = resolved?.interpretation ? { interpretation: resolved.interpretation } : {};
   let refs;
@@ -145,6 +146,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
   }
   refs = refs.filter(product => product.isActive !== false);
   if (!refs.length) return { ...info, status: 'no_reference', products: [], hint: 'No catalog match for the supplied name and presentation. Ask for clarification before changing strength, release or pack.' };
+  if (resolved?.kind === 'brand') info.requestedBrandSkus = refs.map(p => String(p.sku));
   const descriptions = refs.map(describePresentation);
   const { key, signature, missingFields } = descriptions[0];
   const sameSignature = descriptions.every(item => item.signature === signature);
@@ -193,6 +195,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
   }
   const sorted = [...matches.values()].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
   if (!sorted.length) return { ...info, status: 'no_prices', products: [], excluded };
-  const products = origin ? await compareNearby(sorted, origin, store) : sorted;
+  const options = brandOptions(sorted, info.requestedBrandSkus, includeGenerics);
+  const products = origin ? await compareNearby(options, origin, store) : options;
   return { ...info, ...(excluded.length ? { excluded } : {}), status: products.length ? 'matches' : 'no_stock', products };
 }

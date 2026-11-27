@@ -132,3 +132,27 @@ test('common branch can be absent from every displayed nearest-stock row', () =>
   assert.equal(d.plans[0].objective, 'both');
   assert.equal(d.plans[0].stops[0].id, '3');
 });
+
+test('brand consent precedes stock, restricts both plans and pins the requested brand', async t => {
+  const { calls, inventory } = fixture(t);
+  const opts = { origin, confirmBrands: true };
+  const waiting = await planPurchase(['Alpha 1mg', 'Beta 1mg', 'Example 1mg'], opts);
+  assert.equal(waiting.status, 'needs_generic_preference');
+  assert.deepEqual(waiting.pendingBrands.map(p => p.label), ['A', 'B']);
+  assert.deepEqual(calls, []);
+  const items = [{ query: 'Alpha 1mg', includeGenerics: true }, { query: 'Beta 1mg', includeGenerics: false }];
+  const result = await planPurchase(items, opts);
+  assert.deepEqual(result.tables[0].rows.map(p => [p.option, p.sku]), [['A1', '11'], ['A2', '12']]);
+  assert.deepEqual(result.plans.map(p => p.totalBRL), [15, 8]);
+  assert.match(renderPurchase(result), /Beta.*está disponível/);
+  const selected = applySelections(items, result.tables, 'A2, B1');
+  assert.equal(selected[0].selectedSku, '12');
+  inventory[11] = [0, 0, 0];
+  const changed = await planPurchase(items, opts);
+  assert.equal(changed.tables[0].rows[0].option, 'A1');
+  assert.ok(renderPurchase(changed).indexOf('Sem estoque suficiente') < renderPurchase(changed).indexOf('Farmácia'));
+  calls.length = 0;
+  const brand = await planPurchase([{ query: 'Alpha 1mg', includeGenerics: false }], opts);
+  assert.deepEqual(calls, ['11']);
+  assert.equal(brand.status, 'unfilled');
+});
