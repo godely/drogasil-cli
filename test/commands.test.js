@@ -250,3 +250,29 @@ test('drops, concentration, pack volume and bottle counts constrain long brand q
     assert.equal(r.code, 3, query);
   }
 });
+
+test('explicit release selects the documented presentation and preserves dose and count', async () => {
+  const base = { sku: 88262, name: 'Frontal Alprazolam 2mg 30 comprimidos', brand: 'Frontal', price: 154,
+    filters: { 'Forma farmacêutica': 'Comprimidos' }, details: { quantidade: '30 Comprimidos',
+      activeIngredients: [{ description: 'Alprazolam', dosageValue: 2, unitOfMeasurement: { name: 'MG' } }] } };
+  const extended = { ...base, sku: 28619, name: 'Frontal XR Alprazolam 2mg 30 comprimidos', brand: 'Frontal XR',
+    filters: { 'Forma farmacêutica': 'Comprimido de liberação prolongada' } };
+  const unknown = { ...base, sku: 9, name: 'Exemplo 2mg 30 comprimidos', brand: 'Exemplo' };
+  const page = { results: [{ hits: [extended, base, unknown], nbPages: 1 }] };
+  for (const [query, expected] of [
+    ['Frontal 2 mg 30 comprimidos de liberação imediata', 88262],
+    ['Frontal 2 mg de liberação prolongada, com 30 comprimidos', 28619],
+    ['Frontal 2 mg 60 comprimidos de liberação imediata', null],
+    ['Frontal 3 mg de liberação imediata', null],
+    ['Exemplo 2 mg de liberação imediata', null],
+    ['Frontal XR 2 mg de liberação imediata', null],
+  ]) {
+    const r = await run(['compare', query, '--json'], [page, page]);
+    assert.equal(r.code, expected ? 0 : 3, query);
+    const skus = JSON.parse(r.stdout || '[]').map(p => p.sku);
+    if (expected) {
+      assert.ok(skus.includes(expected), query);
+      assert.ok(!skus.includes(expected === 88262 ? 28619 : 88262), query);
+    } else assert.deepEqual(skus, [], query);
+  }
+});
