@@ -199,3 +199,13 @@ The fewest-stores plan breaks ties by straight-line round-trip distance and then
 The CLI and MCP ask once about unresolved commercial brands before checking stock. Active ingredients need no generic preference. Pass `includeGenerics: true` for the named brand followed by equivalent generics, or `false` for the named brand alone. A scripted CLI call without a decision returns `needs_generic_preference` and exit code 3. Library callers can enable the same check with `confirmBrands: true`.
 
 In an interactive terminal, choose from the displayed rows with a reply such as `A2, B1`. Press Enter to keep the initial plans. Programmatic clients resolve those IDs against the original response and resend the corresponding `selectedSku` for each chosen item on refresh. Terminal flags also support `--sku A=123`, `--brand A=Frontal`, and `--generic B`.
+
+### Package the personal ChatGPT plugin
+
+Use Python 3.9 or later and the app ID of your own registered connector. The archive references that connector and includes the two skills from this checkout. Choose a new output filename on each build.
+
+```sh
+python3 scripts/package-plugin.py --app-id "$DROGASIL_APP_ID" --output /tmp/drogasil-plugin.zip
+```
+
+[Comparison with the Apify Drogasil Actor and benchmark method](docs/catalog-comparison.md)
