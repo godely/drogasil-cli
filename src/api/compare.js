@@ -146,7 +146,10 @@ export async function compareProducts(query, { origin = null, store, resolveName
   }
   refs = refs.filter(product => product.isActive !== false);
   if (!refs.length) return { ...info, status: 'no_reference', products: [], hint: 'No catalog match for the supplied name and presentation. Ask for clarification before changing strength, release or pack.' };
-  if (resolved?.kind === 'brand') info.requestedBrandSkus = refs.map(p => String(p.sku));
+  if (resolved?.kind === 'brand') {
+    info.requestedBrandName = resolved.name;
+    info.requestedBrandSkus = refs.map(p => String(p.sku));
+  }
   const descriptions = refs.map(describePresentation);
   const { key, signature, missingFields } = descriptions[0];
   const sameSignature = descriptions.every(item => item.signature === signature);

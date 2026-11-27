@@ -140,7 +140,8 @@ test('brand consent precedes stock, restricts both plans and pins the requested 
   assert.equal(waiting.status, 'needs_generic_preference');
   assert.deepEqual(waiting.pendingBrands.map(p => p.label), ['A', 'B']);
   assert.deepEqual(calls, []);
-  const items = [{ query: 'Alpha 1mg', includeGenerics: true }, { query: 'Beta 1mg', includeGenerics: false }];
+  const items = [{ query: 'Alpha 1mg', brand: 'Alpha', includeGenerics: true },
+    { query: 'Beta 1mg', brand: 'Beta', includeGenerics: false }];
   const result = await planPurchase(items, opts);
   assert.deepEqual(result.tables[0].rows.map(p => [p.option, p.sku]), [['A1', '11'], ['A2', '12']]);
   assert.deepEqual(result.plans.map(p => p.totalBRL), [15, 8]);

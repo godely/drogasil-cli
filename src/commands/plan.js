@@ -31,7 +31,7 @@ export function renderPurchase(result) {
       }
     }
     showNotes(true);
-    const only = t.rows.length === 1 && (t.includeGenerics === false || t.brand) && t.rows[0].option ? t.rows[0] : null;
+    const only = t.rows.length === 1 && (t.includeGenerics === false || (t.includeGenerics === undefined && t.brand)) && t.rows[0].option ? t.rows[0] : null;
     if (only) {
       out.push(only.name + ' (' + only.type + ') está disponível em ' + only.store.name +
         ' (' + (formatKm(only.store.distanceKm) || 'distância desconhecida') + '), com preço de referência ' +

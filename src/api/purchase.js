@@ -17,8 +17,8 @@ function normalizeItem(input) {
   if (!Number.isSafeInteger(quantity) || quantity < 1) throw new TypeError('quantity must be a positive integer');
   if (brand != null && (typeof brand !== 'string' || !brand.trim())) throw new TypeError('brand must be a name');
   if (typeof genericOnly !== 'boolean') throw new TypeError('genericOnly must be a boolean');
-  if (includeGenerics !== undefined && (typeof includeGenerics !== 'boolean' || genericOnly || brand)) {
-    throw new TypeError('Use includeGenerics for a named medication, or specify brand/genericOnly separately');
+  if (includeGenerics !== undefined && (typeof includeGenerics !== 'boolean' || (genericOnly && !includeGenerics))) {
+    throw new TypeError('includeGenerics must be boolean and cannot be false when genericOnly is true');
   }
   if (selectedSku != null && !/^\d+$/.test(selectedSku)) throw new TypeError('selectedSku must be numeric');
   return { query: item.query.trim(), quantity, brand: brand?.trim(), genericOnly, ...(includeGenerics === undefined ? {} : { includeGenerics }),
@@ -89,12 +89,16 @@ async function prepareItem(item, label, catalog, expandSku) {
   // A literal SKU is a purchase preference. compareProducts itself still
   // expands exact SKUs for existing catalog-comparison callers.
   const requiredSku = item.selectedSku ?? (!expandSku && /^\d+$/.test(item.query) ? item.query : null);
+  const matchesBrand = p => [p.brand, p.filters?.Marca, p.details?.marca].flat()
+    .some(name => name && fold(name) === fold(item.brand));
+  if (item.brand && item.includeGenerics !== undefined && fold(item.brand) !== fold(result.requestedBrandName ?? '')) {
+    brandSkus = products.filter(matchesBrand).map(p => String(p.sku));
+  }
   if (item.includeGenerics !== undefined) table.requestedBrandSkus = brandSkus ?? [];
   const filtered = brandOptions(products, brandSkus, item.includeGenerics).filter(p => {
     if (requiredSku && String(p.sku) !== requiredSku) return false;
     if (item.genericOnly && productInfo(p).type !== 'Genérico') return false;
-    if (!item.brand) return true;
-    return [p.brand, p.filters?.Marca, p.details?.marca].flat().some(name => name && fold(name) === fold(item.brand));
+    return !item.brand || item.includeGenerics !== undefined || matchesBrand(p);
   });
   if (!filtered.length) table.status = 'preference_unavailable';
   return { table, products: filtered };
