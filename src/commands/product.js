@@ -1,4 +1,5 @@
 import { getProductsBySku } from '../api/index.js';
+import { medicationType } from '../api/product-info.js';
 import { printJson, table, formatPrice } from '../format.js';
 
 export const usage = `Usage: drogasil product <sku> [<sku>...] [--json]
@@ -10,7 +11,7 @@ and store.`;
 
 export const options = {};
 
-const ATTRIBUTES = ['sku', 'name', 'brand', 'eanCode', 'price', 'status', 'isActive', 'url'];
+const ATTRIBUTES = ['sku', 'name', 'brand', 'eanCode', 'price', 'status', 'isActive', 'url', 'filters', 'details'];
 
 export async function run(positionals, values) {
   const skus = positionals.map((s) => s.trim()).filter(Boolean);
@@ -31,8 +32,8 @@ export async function run(positionals, values) {
 
   const rows = found.map((p, i) =>
     p
-      ? [p.sku, p.name, p.brand ?? '', p.eanCode ?? '', formatPrice(p.price), p.isActive === false ? 'inactive' : '']
-      : [skus[i], 'not found', '', '', '', ''],
+      ? [p.sku, p.name, medicationType(p), p.brand ?? '', p.eanCode ?? '', formatPrice(p.price), p.isActive === false ? 'inactive' : '']
+      : [skus[i], 'not found', '', '', '', '', ''],
   );
   process.stdout.write(table(['SKU', 'NAME', 'BRAND', 'EAN', 'PRICE', 'STATUS'], rows) + '\n');
   return missing ? 3 : 0;

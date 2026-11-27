@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { HttpError, NetworkError, GraphQLError } from './api/index.js';
 
 const COMMANDS = {
+  plan: () => import('./commands/plan.js'),
   compare: () => import('./commands/compare.js'),
   search: () => import('./commands/search.js'),
   product: () => import('./commands/product.js'),
@@ -12,6 +13,7 @@ const COMMANDS = {
 const USAGE = `drogasil - read-only CLI for drogasil.com.br
 
 Usage:
+  drogasil plan "<medication A>" ["<medication B>" ...] (--cep CEP | --lat LAT --lon LON) [--json]
   drogasil compare <medication name and strength | SKU> [--cep CEP | --lat LAT --lon LON] [--json]
   drogasil search <query> [--limit N] [--page N] [--json]
   drogasil product <sku> [<sku>...] [--json]

@@ -113,7 +113,7 @@ async function referenceOptions(query) {
   return exact.length ? exact : candidates;
 }
 
-export async function compareProducts(query, { origin = null, store, resolveNames = false } = {}) {
+export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false } = {}) {
   if (!['string', 'number'].includes(typeof query) || !String(query).trim()) throw new TypeError('expected a medication name or SKU');
   origin = normalizeOrigin(origin);
   if (store && (!origin || (store !== 'nearest' && !/^\d+$/.test(store)))) {
@@ -132,7 +132,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
   let refs;
   if (resolved?.filters) {
     const suffix = catalogQuery(resolved.suffix);
-    refs = await ingredientPresentations(query, { ...resolved, suffix });
+    refs = await ingredientPresentations(query, { ...resolved, suffix }, includeUnpriced);
     if (suffix) {
       const terms = normalize(suffix).match(/[\p{L}\d.]+/gu) ?? [];
       refs = refs.filter(p => {
@@ -187,11 +187,11 @@ export async function compareProducts(query, { origin = null, store, resolveName
         reason: 'Pack conflict: catalog quantity ' + pack + ', title ' + titleCount[0] });
       continue;
     }
-    if (product.isActive === false || presentation(product) !== key ||
-        !Number.isFinite(product.price) || product.price <= 0) continue;
-    matches.set(String(product.sku), product);
+    if (product.isActive === false || presentation(product) !== key) continue;
+    const priced = Number.isFinite(product.price) && product.price > 0;
+    if (priced || includeUnpriced) matches.set(String(product.sku), priced ? product : { ...product, price: null });
   }
-  const sorted = [...matches.values()].sort((a, b) => a.price - b.price || String(a.sku).localeCompare(String(b.sku)));
+  const sorted = [...matches.values()].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
   if (!sorted.length) return { ...info, status: 'no_prices', products: [], excluded };
   const products = origin ? await compareNearby(sorted, origin, store) : sorted;
   return { ...info, ...(excluded.length ? { excluded } : {}), status: products.length ? 'matches' : 'no_stock', products };

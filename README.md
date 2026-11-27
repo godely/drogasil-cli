@@ -19,6 +19,7 @@ Or run in place with `node ./bin/drogasil.js …`.
 | Command | Backend | What it does |
 |---|---|---|
 | `drogasil compare <name and strength or SKU>` | Algolia | Match catalog presentations and sort by reference price |
+| `drogasil plan "<item A>" "<item B>" --cep CEP` | Catalog, stock and directory | Compare nearest stocked options, stops, round-trip distances and basket totals |
 | `drogasil search <query>` | Algolia | Name to SKU, with brand and reference price. `--page` starts at 1 |
 | `drogasil product <sku>…` | Algolia | Direct SKU lookup |
 | `drogasil stock <sku> --lat --lon` | GraphQL `getNearbyStockByLatLong` | Nearby stores with stock, nearest first |
@@ -37,7 +38,7 @@ drogasil stock 53472 --cep 01001-000 --min-qty 2
 drogasil stock 110166 --lat -23.5500 --lon -46.630 --all --json
 ```
 
-With `--cep` or both `--lat` and `--lon`, `compare` shows only products in stock at nearby participating branches. Products are ordered by catalog reference price, with stores nearest first under each product. JSON adds a `stores` array to each available product.
+With a location, the human-readable comparison shows each option at its nearest stocked branch, cheapest first. Pass `--store nearest` to check the physically closest participating branch, including zeros. The existing `compare --json` output retains the full branch arrays.
 
 ## Exit codes
 
@@ -123,7 +124,7 @@ It has no user authentication and is intended for same-machine access.
 Cloud clients require a supported private tunnel or an authenticated deployment.
 
 Both transports expose `search_products`, `get_products`, `find_nearby_stock`,
-and `compare_products`. Location is either `{"zipcode":"01001-000"}` or a pair
+`compare_products`, and `plan_purchase`. Location is either `{"zipcode":"01001-000"}` or a pair
 of numeric `latitude` and `longitude` fields. Optional client skills are in `skills/`.
 Run transport tests with `npm test --prefix mcp`.
 
@@ -154,3 +155,23 @@ equivalents. Retrying the same SKU yields the same catalog limitation.
 `find_nearby_stock` reports the closest participating branch in `nearestStore`,
 including its zero or unknown quantity. Its default `stores` list contains branches
 meeting `minimumQuantity`. Pass `store: "nearest"` to limit the result to one branch.
+
+## Multi-medication shopping
+
+```sh
+drogasil plan "Frontal 2 mg" "Tylenol 750 mg 20 comprimidos" --cep "$CEP"
+drogasil plan "Frontal 2 mg" "Tylenol 750 mg 20 comprimidos" --cep "$CEP" --generic A --quantity B=2
+```
+
+```js
+import { planPurchase } from 'drogasil-cli';
+
+const items = [{ query: 'Frontal 2 mg' }, { query: 'Tylenol 750 mg 20 comprimidos', quantity: 2 }];
+const result = await planPurchase(items, { origin: { zipcode: process.env.CEP } });
+```
+
+The MCP tool `plan_purchase` takes the same `items`, `origin`, and optional `store: "nearest"` in one call. Each numbered row shows the closest branch reporting enough packs for that line. The planner uses all checked branches for its trips and accounts for stock shared by multiple lines. Each pickup fills one line at one branch. When the whole basket cannot be filled, the planner maximizes the number of complete lines and identifies the remainder.
+
+The fewest-stores plan breaks ties by straight-line round-trip distance and then reference price. The cheapest plan breaks ties by number of stores and then distance. Missing prices yield unknown totals. Store-to-store distances use the directory coordinates. The stock service supplies distances from the origin. Large searches have a bounded computation budget. Check `searchComplete`, `priceIncomplete` and `stockIncomplete` before describing a plan as optimal.
+
+In an interactive terminal, choose from the displayed rows with a reply such as `A2, B1`. Press Enter to keep the initial plans. Programmatic clients resolve those IDs against the original response and resend the corresponding `selectedSku` for each chosen item on refresh. Terminal flags also support `--sku A=123`, `--brand A=Frontal`, and `--generic B`.

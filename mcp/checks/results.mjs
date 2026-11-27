@@ -93,3 +93,31 @@ test('incomplete catalog hits return exact stock at the same branch without a SK
   const ambiguous = await call('compare_products', { query: 'Example 10mg', origin, store: 'nearest' });
   assert.equal(ambiguous.status, 'ambiguous');
 });
+
+test('one purchase tool call returns both tables and a merged trip, including catalog type', async t => {
+  process.env.DROGASIL_MIN_INTERVAL_MS = '0';
+  const skus = [];
+  t.mock.method(globalThis, 'fetch', async (_url, { body }) => {
+    const { requests, variables } = JSON.parse(body);
+    if (requests) {
+      const sku = requests[0].objectID;
+      return Response.json({ results: [{ sku, name: 'Example Genérico ' + sku, price: 5, details: {} }] });
+    }
+    skus.push(variables.p[0].sku);
+    return Response.json({ data: { getNearbyStockByZipCode: [{ branch: {
+      id: 9, businessName: 'Central', distanceKMFromSearch: 1 }, stocks: [{ sku: variables.p[0].sku, quantity: 2 }] }] } });
+  });
+  const [local, remote] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'plan-check', version: '1' });
+  await createServer().connect(remote);
+  await client.connect(local);
+  t.after(() => client.close());
+  const result = await client.callTool({ name: 'plan_purchase', arguments: {
+    items: [{ query: '11' }, { query: '22', quantity: 2 }], origin: { zipcode: '00000-000' },
+  } });
+  const data = result.structuredContent;
+  assert.deepEqual(skus.sort(), ['11', '22']);
+  assert.equal(data.status, 'complete');
+  assert.deepEqual(data.tables.map(t => [t.rows[0].option, t.rows[0].type]), [['A1', 'Genérico'], ['B1', 'Genérico']]);
+  assert.deepEqual(data.plans.map(p => [p.objective, p.roundTripKm, p.totalBRL]), [['both', 2, 15]]);
+});

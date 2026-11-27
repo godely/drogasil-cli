@@ -1,4 +1,5 @@
 import { searchProducts } from '../api/index.js';
+import { medicationType } from '../api/product-info.js';
 import { printJson, table, formatPrice } from '../format.js';
 
 export const usage = `Usage: drogasil search <query> [--limit N] [--page N] [--json]
@@ -48,7 +49,7 @@ export async function run(positionals, values) {
     return 0;
   }
 
-  const rows = result.hits.map((h) => [h.sku, h.name, h.brand ?? '', formatPrice(h.price)]);
+  const rows = result.hits.map((h) => [h.sku, h.name, medicationType(h), h.brand ?? '', formatPrice(h.price)]);
   process.stdout.write(table(['SKU', 'NAME', 'BRAND', 'PRICE'], rows) + '\n');
   if (result.nbPages > 1) {
     process.stdout.write(`\npage ${result.page + 1} of ${result.nbPages} (${result.nbHits} hits)\n`);

@@ -13,3 +13,5 @@ export {
 export { HttpError, NetworkError, VERSION } from './http.js';
 export { compareProducts } from './compare.js';
 export { medicationSearch } from './medications.js';
+export { planPurchase } from './purchase.js';
+export { productInfo, medicationType } from './product-info.js';

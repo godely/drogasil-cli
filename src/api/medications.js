@@ -99,13 +99,13 @@ export async function medicationSearch(query, options = {}, resolved) {
   return { ...result, interpretation: name.interpretation, status: result.nbHits ? 'matches' : 'no_reference',
     ...(!result.nbHits ? { hint: `Catalog names are in Portuguese; no match for "${query}".` } : {}) };
 }
-export async function ingredientPresentations(query, resolved) {
+export async function ingredientPresentations(query, resolved, includeUnpriced = false) {
   const first = await medicationSearch(query, { hitsPerPage: 100 }, resolved);
   const products = first.hits.slice();
   for (let page = 1; page < first.nbPages; page++) {
     const next = await medicationSearch(query, { page, hitsPerPage: 100 }, resolved);
     products.push(...next.hits);
   }
-  return products.filter(p => p.isActive !== false && Number.isFinite(p.price) && p.price > 0)
+  return products.filter(p => p.isActive !== false && (includeUnpriced || (Number.isFinite(p.price) && p.price > 0)))
     .sort((a, b) => a.price - b.price || String(a.sku).localeCompare(String(b.sku)));
 }

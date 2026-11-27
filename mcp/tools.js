@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { compareProducts, medicationSearch, getProductsBySku, getNearbyStockByZipCode,
-  getNearbyStockByLatLong, isNoNearbyStock, VERSION } from 'drogasil-cli';
+  getNearbyStockByLatLong, isNoNearbyStock, planPurchase, productInfo, VERSION } from 'drogasil-cli';
 
 const sku = z.string().regex(/^\d+$/);
 const query = z.string().trim().min(1);
@@ -9,11 +9,6 @@ const origin = z.union([
   z.strictObject({ zipcode: z.string().regex(/^\d{5}-?\d{3}$/) }),
   z.strictObject({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) }),
 ]).describe('CEP or exact coordinates explicitly supplied for this lookup.');
-
-function productInfo(product) {
-  return { sku: String(product.sku), name: product.name, brand: product.brand,
-    referencePriceBRL: product.price, pack: product.details?.quantidade };
-}
 
 function storeInfo(branch, quantity) {
   return { id: branch.id, name: branch.businessName, distanceKm: branch.distanceKMFromSearch,
@@ -29,6 +24,11 @@ export function createServer() {
       return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
     });
   }
+  tool('plan_purchase', 'Use one call for shopping requests with a shared origin. Send all medications together. Returns one numbered table per medication (nearest stocked branch per SKU), two purchase plans when possible, and their tradeoff. Use store="nearest" only for a fixed closest branch. Honor explicit preferences. For A2/B1 replies send the SKU from the previous table as selectedSku. Show Tipo, stock, reference price and straight-line distances. Report unavailable, unknown, failed and incomplete results separately.',
+    { origin, store: z.literal('nearest').optional(), items: z.array(z.object({
+      query, quantity: z.number().int().positive().optional(), selectedSku: sku.optional(),
+      brand: z.string().trim().min(1).optional(), genericOnly: z.boolean().optional(),
+    })).min(1) }, ({ items, origin, store }) => planPurchase(items, { origin, store }));
   tool('search_products', 'Literal catalog lookup with medication spelling and language normalization. Brand searches stay within the brand. For all matching generics and brands, use compare_products.',
     { query, page: z.number().int().min(1).default(1), limit: z.number().int().min(1).max(100).default(20) },
     async ({ query, page, limit }) => {
@@ -58,7 +58,7 @@ export function createServer() {
         hint: 'For a closest-store question report nearestStore, including quantity 0 or null (unknown). A different branch in stores is an alternative.',
         checkedAt: new Date().toISOString() };
     });
-  tool('compare_products', 'Compare medication options cheapest first. Send the original spelling, strength, release and pack. For the closest participating branch, include origin and store="nearest" in one call. Report incomplete_presentation directly: these are direct catalog hits with unverified equivalence, and their branch quantities answer the stock question. Ask the user only for genuine ambiguity or conflicting specifications. Confirm before changing a requested strength or release.',
+  tool('compare_products', 'Compare catalog presentations cheapest first. For shopping tables or more than one medication, use plan_purchase. Send the original spelling, strength, release and pack. For the closest participating branch, include origin and store="nearest" in one call. Report incomplete_presentation directly: these are direct catalog hits with unverified equivalence, and their branch quantities answer the stock question. Ask the user only for genuine ambiguity or conflicting specifications. Confirm before changing a requested strength or release.',
     { query, origin: origin.optional(), store: z.union([z.literal('nearest'), sku]).optional() }, async ({ query, origin, store }) => {
       const result = await compareProducts(query, { origin, store, resolveNames: true });
       if (result.status === 'ambiguous') return { ...result, candidates: result.candidates?.map(productInfo) };
