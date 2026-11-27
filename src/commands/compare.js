@@ -23,10 +23,17 @@ export async function run(positionals, values) {
     process.stderr.write(err.message + '\n');
     return 1;
   }
-  const { status, products = [], candidates } = await compareProducts(query, { origin });
+  const { status, products = [], candidates, missingFields } = await compareProducts(query, { origin });
   if (values.json) printJson(products);
-  if (status !== 'matches') {
+  if (status === 'incomplete_presentation') {
+    process.stderr.write('Direct catalog hits only. Equivalence unverified: ' + missingFields.join(', ') + '.\n');
+    if (origin && !products.length) {
+      process.stderr.write('No direct catalog hits with nearby stock.\n');
+      return 3;
+    }
+  } else if (status !== 'matches') {
     const messages = {
+      conflicting_release: 'Conflicting release types. Specify one presentation.',
       no_reference: 'No matching reference product.',
       no_prices: 'No matching products with a reference price.',
       no_stock: 'No matching products with nearby stock.',

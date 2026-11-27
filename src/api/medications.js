@@ -38,11 +38,18 @@ function index() {
 }
 function distance(a, b) {
   let row = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (const c of a) {
+  let previousRow;
+  for (let i = 0; i < a.length; i++) {
+    const c = a[i];
     const next = [row[0] + 1];
     for (let j = 0; j < b.length; j++) {
-      next.push(Math.min(row[j + 1] + 1, next[j] + 1, row[j] + Number(c !== b[j])));
+      let cost = Math.min(row[j + 1] + 1, next[j] + 1, row[j] + Number(c !== b[j]));
+      if (i > 0 && j > 0 && c === b[j - 1] && a[i - 1] === b[j]) {
+        cost = Math.min(cost, previousRow[j - 1] + 1);
+      }
+      next.push(cost);
     }
+    previousRow = row;
     row = next;
   }
   return row[b.length];

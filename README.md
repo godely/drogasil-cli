@@ -145,3 +145,12 @@ Pass `store: "nearest"` or a numeric branch ID as a string together with `origin
 branch. This includes zero quantities. A branch outside the upstream search window
 has status `outside_search_window`. One MCP call performs one upstream stock lookup
 per equivalent.
+
+When a catalog record lacks a required comparison field, `incomplete_presentation`
+returns the direct catalog hits and identifies the missing fields. A location-aware
+lookup still checks stock for those SKUs. The result makes no claim about other
+equivalents. Retrying the same SKU yields the same catalog limitation.
+
+`find_nearby_stock` reports the closest participating branch in `nearestStore`,
+including its zero or unknown quantity. Its default `stores` list contains branches
+meeting `minimumQuantity`. Pass `store: "nearest"` to limit the result to one branch.

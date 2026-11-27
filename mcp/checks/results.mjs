@@ -38,3 +38,58 @@ test('MCP preserves library ordering and distinguishes outages from empty stock'
   stockMode = 'outage';
   assert.equal((await call()).isError, true);
 });
+
+test('incomplete catalog hits return exact stock at the same branch without a SKU retry', async t => {
+  process.env.DROGASIL_MIN_INTERVAL_MS = '0';
+  const product = { sku: '11', name: 'Example 10mg 12 comprimidos', price: 12,
+    details: { quantidade: '12 Comprimidos', activeIngredients: [
+      { description: 'Example', dosageValue: 10, unitOfMeasurement: { name: 'MG' } },
+    ] } };
+  const other = { ...product, sku: '22', price: 5 };
+  const hits = [product, other];
+  const nearest = { branch: { id: 1, businessName: 'Near' }, stocks: [] };
+  const farther = { branch: { id: 2, businessName: 'Far' }, stocks: [] };
+  const requestsForStock = [];
+  t.mock.method(globalThis, 'fetch', async (_url, { body }) => {
+    const { requests, variables } = JSON.parse(body);
+    if (requests?.[0].objectID) return Response.json({ results: [product] });
+    if (requests?.[0].facets) return Response.json({ results: [{ facets: {
+      'details.activeIngredients.description': { Example: 2 }, 'filters.Marca': {} } }] });
+    if (requests) return Response.json({ results: [{ hits, nbHits: hits.length, nbPages: 1 }] });
+    const [item] = variables.p;
+    assert.equal(item.quantity, undefined);
+    requestsForStock.push(item.sku);
+    const near = { ...nearest, stocks: [{ sku: item.sku, quantity: item.sku === '11' ? null : 0 }] };
+    const far = { ...farther, stocks: [{ sku: item.sku, quantity: 7 }] };
+    const rows = item.sku === '11' && requestsForStock.length === 2 ? [far, near] : [near, far];
+    return Response.json({ data: { [variables.lat ? 'getNearbyStockByLatLong' : 'getNearbyStockByZipCode']: rows } });
+  });
+  const [local, remote] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'regression', version: '1' });
+  await createServer().connect(remote);
+  await client.connect(local);
+  t.after(() => client.close());
+  const origin = { zipcode: '01001-000' };
+  const call = async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
+  const conflict = await call('compare_products', { query: 'Example XR 10mg de liberação imediata', origin, store: 'nearest' });
+  assert.equal(conflict.status, 'conflicting_release');
+  assert.deepEqual(requestsForStock, []);
+  const result = await call('compare_products', { query: 'Example 10mg, caixa de 12 comprimidos', origin, store: 'nearest' });
+  assert.equal(result.status, 'incomplete_presentation');
+  assert.deepEqual(result.missingFields, ['dosage_form']);
+  assert.deepEqual(result.products.map(p => [p.sku, p.storeId, p.stockStatus]), [
+    ['22', '1', 'out_of_stock'], ['11', '1', 'unknown'] ]);
+  assert.deepEqual(requestsForStock, ['22', '11']);
+  const exact = await call('compare_products', { query: '11', origin, store: 'nearest' });
+  assert.equal(exact.status, 'incomplete_presentation');
+  assert.deepEqual(exact.products.map(p => p.sku), ['11']);
+  const nearby = await call('find_nearby_stock', { sku: '22', origin, minimumQuantity: 3 });
+  assert.equal(nearby.nearestStore.id, 1);
+  assert.equal(nearby.nearestStore.quantity, 0);
+  assert.deepEqual(nearby.stores.map(s => s.id), [2]);
+  const closest = await call('find_nearby_stock', { sku: '11', origin: { latitude: -8, longitude: -35 }, store: 'nearest' });
+  assert.deepEqual(closest.stores.map(s => [s.id, s.quantity]), [[1, null]]);
+  hits.push({ ...product, sku: '33', name: 'Example 10mg 30 comprimidos', details: { ...product.details, quantidade: '30 Comprimidos' } });
+  const ambiguous = await call('compare_products', { query: 'Example 10mg', origin, store: 'nearest' });
+  assert.equal(ambiguous.status, 'ambiguous');
+});

@@ -40,9 +40,9 @@ export function createServer() {
     { skus: z.array(sku).min(1).max(100) }, async ({ skus }) => ({
       products: (await getProductsBySku(skus)).map(product => product && productInfo(product)),
     }));
-  tool('find_nearby_stock', 'Find store options for one specific SKU, nearest first. For medication options (matching brands and generics), use compare_products with the shared location.',
-    { sku, origin, minimumQuantity: z.number().int().min(1).default(1) }, async ({ sku, origin, minimumQuantity }) => {
-      const params = { ...origin, sku, quantity: minimumQuantity };
+  tool('find_nearby_stock', 'Check one SKU. For the physically closest participating branch, use store="nearest" and read nearestStore, including zero or unknown quantity. Without store, stores lists branches meeting minimumQuantity. Use compare_products for medication options.',
+    { sku, origin, store: z.literal('nearest').optional(), minimumQuantity: z.number().int().min(1).default(1) }, async ({ sku, origin, store, minimumQuantity }) => {
+      const params = { ...origin, sku };
       let rows;
       try {
         rows = origin.zipcode ? await getNearbyStockByZipCode(params) : await getNearbyStockByLatLong(params);
@@ -50,14 +50,15 @@ export function createServer() {
         if (!isNoNearbyStock(err)) throw err;
         rows = [];
       }
-      const stores = [];
-      for (const { branch, stocks } of rows) {
-        const stock = stocks.find(item => String(item.sku) === sku);
-        if (stock?.quantity >= minimumQuantity) stores.push(storeInfo(branch, stock.quantity));
-      }
-      return { sku, stores, checkedAt: new Date().toISOString() };
+      const window = rows.map(({ branch, stocks }) =>
+        storeInfo(branch, stocks?.find(item => String(item.sku) === sku)?.quantity ?? null));
+      const nearestStore = window[0] ?? null;
+      const stores = store === 'nearest' ? window.slice(0, 1) : window.filter(row => row.quantity >= minimumQuantity);
+      return { sku, nearestStore, stores, scope: store ?? 'meeting_minimum_quantity', minimumQuantity,
+        hint: 'For a closest-store question report nearestStore, including quantity 0 or null (unknown). A different branch in stores is an alternative.',
+        checkedAt: new Date().toISOString() };
     });
-  tool('compare_products', 'Find medication options including matching brands and generics, cheapest reference price first. Use for “Frontal 2mg options in my area” with the original query and shared coordinates. Expand a brand to matching ingredient(s), strength, form, release and pack. Set store to nearest or a store ID with origin to see every equivalent at one branch, including zeros. For presentation_options, display separate groups; for ambiguous names ask which candidate was intended. With a location, include stocked branches. If ambiguous, ask the user to choose a candidate SKU.',
+  tool('compare_products', 'Compare medication options cheapest first. Send the original spelling, strength, release and pack. For the closest participating branch, include origin and store="nearest" in one call. Report incomplete_presentation directly: these are direct catalog hits with unverified equivalence, and their branch quantities answer the stock question. Ask the user only for genuine ambiguity or conflicting specifications. Confirm before changing a requested strength or release.',
     { query, origin: origin.optional(), store: z.union([z.literal('nearest'), sku]).optional() }, async ({ query, origin, store }) => {
       const result = await compareProducts(query, { origin, store, resolveNames: true });
       if (result.status === 'ambiguous') return { ...result, candidates: result.candidates?.map(productInfo) };

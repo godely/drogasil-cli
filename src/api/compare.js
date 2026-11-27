@@ -53,25 +53,40 @@ function normalize(value) {
     .replace(/(\d)\.0+(?=[a-z\s]|$)/g, '$1').trim().replace(/\s+/g, ' ');
 }
 
-function presentation(product) {
+// Packaging prose can sit between the dosage and the count in a user's query.
+function catalogQuery(value) {
+  return value.replace(/\s*,?\s*\b(?:(?:caixa|embalagem)\s+(?:de|com)|com)\s+(?=\d+\s+(?:comprimidos?|c[áa]psulas?)\b)/giu, ' ').trim();
+}
+
+function describePresentation(product) {
   const ingredients = product.details?.activeIngredients;
   const form = normalize(product.filters?.['Forma farmacêutica']);
   const pack = normalize(product.details?.quantidade);
-  if (!Array.isArray(ingredients) || !ingredients.length || !form || !/^\d/.test(pack)) return null;
-  if (product.details.activeNumberIngredient != null &&
-      Number(product.details.activeNumberIngredient) !== ingredients.length) return null;
+  const missing = new Set();
+  if (!form) missing.add('dosage_form');
+  if (!/^\d/.test(pack)) missing.add('pack_size');
+  if (!Array.isArray(ingredients) || !ingredients.length ||
+      (product.details.activeNumberIngredient != null && Number(product.details.activeNumberIngredient) !== ingredients.length)) {
+    missing.add('active_ingredients');
+  }
 
   const doses = [];
-  for (const ingredient of ingredients) {
+  for (const ingredient of Array.isArray(ingredients) ? ingredients : []) {
     const name = normalize(ingredient?.description);
     const unit = normalize(ingredient?.unitOfMeasurement?.name);
     const dose = Number(String(ingredient?.dosageValue).replace(',', '.'));
-    if (!name || !unit || !Number.isFinite(dose) || dose <= 0) return null;
+    if (!name) missing.add('active_ingredients');
+    if (!unit || !Number.isFinite(dose) || dose <= 0) missing.add('strength');
     doses.push(JSON.stringify([name, dose, unit]));
   }
   const label = normalize([product.name, product.brand, form, pack].join(' '));
   const markers = label.match(/\b(?:xr|xl|sr|cr|er|dr|la|lp|mr|retard|chrono|depot|orodispersivel|sublingual|mastigavel|efervescente|gastrorresistente|liberacao (?:prolongada|modificada|controlada|retardada|lenta|bifasica))\b/g) ?? [];
-  return JSON.stringify([doses.sort(), form, pack, normalize(product.filters?.['Via de administração']), [...new Set(markers)].sort()]);
+  const signature = JSON.stringify([doses.sort(), form, pack, normalize(product.filters?.['Via de administração']), [...new Set(markers)].sort()]);
+  return { key: missing.size ? null : signature, signature, missingFields: [...missing] };
+}
+
+function presentation(product) {
+  return describePresentation(product).key;
 }
 
 async function searchAll(query, filters) {
@@ -105,25 +120,47 @@ export async function compareProducts(query, { origin = null, store, resolveName
     throw new TypeError('store requires an origin and either nearest or a numeric store ID');
   }
   query = String(query).trim();
+  const release = normalize(query);
+  if (/\b(?:xr|xl|sr|er|lp|liberacao (?:prolongada|modificada|controlada)|extended[- ]release)\b/.test(release) &&
+      /\b(?:liberacao imediata|immediate[- ]release)\b/.test(release)) {
+    return { status: 'conflicting_release', products: [],
+      hint: 'Ask which release the user intends. Stock has not been checked for either presentation.' };
+  }
   const resolved = resolveNames ? await resolveMedication(query) : null;
   if (resolved?.status === 'ambiguous') return resolved;
   const info = resolved?.interpretation ? { interpretation: resolved.interpretation } : {};
   let refs;
   if (resolved?.filters) {
-    refs = await ingredientPresentations(query, resolved);
-    if (resolved.suffix) {
-      const terms = normalize(resolved.suffix).match(/[\p{L}\d.]+/gu) ?? [];
+    const suffix = catalogQuery(resolved.suffix);
+    refs = await ingredientPresentations(query, { ...resolved, suffix });
+    if (suffix) {
+      const terms = normalize(suffix).match(/[\p{L}\d.]+/gu) ?? [];
       refs = refs.filter(p => {
         const words = normalize([p.name, ...(p.details?.dosageList ?? [])].join(' ')).match(/[\p{L}\d.]+/gu) ?? [];
         return terms.every(term => words.includes(term));
       });
     }
   } else {
-    refs = await referenceOptions(query);
+    refs = await referenceOptions(catalogQuery(query));
   }
-  if (!refs.length) return { ...info, status: 'no_reference', products: [], hint: 'Catalog names are in Portuguese; no matching presentation for ' + query };
-  const key = presentation(refs[0]);
-  if (!key || refs.some(product => presentation(product) !== key)) {
+  refs = refs.filter(product => product.isActive !== false);
+  if (!refs.length) return { ...info, status: 'no_reference', products: [], hint: 'No catalog match for the supplied name and presentation. Ask for clarification before changing strength, release or pack.' };
+  const descriptions = refs.map(describePresentation);
+  const { key, signature, missingFields } = descriptions[0];
+  const sameSignature = descriptions.every(item => item.signature === signature);
+  // Direct catalog hits can be priced and located even when equivalence cannot be established.
+  // Several incomplete hits are only reported together when their known presentation fields agree.
+  const onlyFormMissing = descriptions.every(item =>
+    item.missingFields.length === 1 && item.missingFields[0] === 'dosage_form');
+  if (!key && (refs.length === 1 || (sameSignature && onlyFormMissing))) {
+    const direct = refs.map(product =>
+      Number.isFinite(product.price) && product.price > 0 ? product : { ...product, price: null });
+    direct.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
+    const products = origin ? await compareNearby(direct, origin, store) : direct;
+    return { ...info, status: 'incomplete_presentation', missingFields, referenceSkus: direct.map(p => String(p.sku)),
+      products, hint: 'Report these direct catalog hits and their available stock. Equivalence is unverified. Confirmation or retrying these SKUs cannot fill the missing catalog fields.' };
+  }
+  if (!key || descriptions.some(item => item.key !== key)) {
     if (resolved?.kind === 'ingredient' && !origin) {
       const groups = new Map();
       for (const product of refs) {
