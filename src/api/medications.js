@@ -29,14 +29,14 @@ export function nameIndex([ingredients, brands]) {
   return { ingredient, brand };
 }
 let pending, expires = 0;
-function index() {
+export function medicationIndex() {
   if (!pending || Date.now() >= expires) {
     expires = Date.now() + 24 * 60 * 60 * 1000;
     pending = medicationFacets().then(nameIndex).catch(err => { pending = undefined; throw err; });
   }
   return pending;
 }
-function distance(a, b) {
+export function distance(a, b) {
   let row = Array.from({ length: b.length + 1 }, (_, i) => i);
   let previousRow;
   for (let i = 0; i < a.length; i++) {
@@ -90,7 +90,7 @@ export function resolveName(query, names) {
 }
 export async function resolveMedication(query) {
   if (/^\d+$/.test(query)) return { kind: 'sku', suffix: query };
-  return resolveName(query, await index());
+  return resolveName(query, await medicationIndex());
 }
 export async function medicationSearch(query, options = {}, resolved) {
   const name = resolved ?? await resolveMedication(query);
