@@ -27,6 +27,11 @@ function dimensions(title) {
 }
 export function samePack(anchor, row) {
   if (!validBarcode(anchor.gtin) || anchor.gtin !== row.gtin) return false;
+  // A seller can advertise an extra item only in its full title while the SKU
+  // and itemName still identify the underlying medicine. The barcode cannot
+  // establish equivalence for a promotional bundle.
+  const bundle = /\b(?:kit|brinde|gratis)\b|\+\s*(?:\d+\s*)?(?:porta[- ]?comprimidos?|frasco|embalagem)|\bleve\s+\d+\s+(?:e\s+)?pague\b/;
+  if ([anchor,row].some(p=>bundle.test(norm([p.name,p.itemName].join(' '))))) return false;
   const a = dimensions(anchor.itemName ?? anchor.name), b = dimensions(row.itemName ?? row.name);
   if (a.release !== b.release || a.sublingual !== b.sublingual || a.route !== b.route || a.multiplier !== b.multiplier) return false;
   for (const key of ['strength','volume','count','form']) if (a[key] && b[key] && a[key] !== b[key]) return false;

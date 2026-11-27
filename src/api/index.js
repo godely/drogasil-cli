@@ -18,4 +18,4 @@ export { productInfo, medicationType } from './product-info.js';
 export { getMedicationInfo } from './medication-info.js';
 export { searchStockWindows, stockQuantity, STOCK_RADIUS_KM } from './stock-search.js';
 export { collectSnapshot, readSnapshot } from '../snapshots/index.js';
-export { compareRetailPrices } from './retail-prices.js';
+export { compareRetailPrices, samePack } from './retail-prices.js';
