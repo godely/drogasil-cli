@@ -36,7 +36,8 @@ async function runQuery(request) {
     { requests: [request] },
     ALGOLIA_HEADERS,
   );
-  const result = json?.results?.[0] ?? {};
+  const result = json?.results?.[0];
+  if (!result || (!request.facets && !Array.isArray(result.hits) && !result.error && !result.message)) throw new Error('Unexpected catalog search response');
   if (result.error || result.message) throw new Error(result.error ?? result.message);
   return {
     ...(request.facets ? { facets: result.facets, stats: result.facets_stats } : {}),

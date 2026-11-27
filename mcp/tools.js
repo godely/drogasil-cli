@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { compareProducts, medicationSearch, getProductsBySku, searchStockWindows, stockQuantity, planPurchase, getMedicationInfo, productInfo, VERSION } from 'drogasil-cli';
+import { collectSnapshot, readSnapshot, compareProducts, medicationSearch, getProductsBySku, searchStockWindows, stockQuantity, planPurchase, getMedicationInfo, productInfo, VERSION } from 'drogasil-cli';
 
 const sku = z.string().regex(/^\d+$/);
 const query = z.string().trim().min(1);
@@ -69,5 +69,16 @@ export function createServer() {
         ...productInfo(product), storeId: product.storeId, stockStatus: product.stockStatus, stores: product.stores?.map(store => storeInfo(store, store.quantity)),
       })) };
     });
+  server.registerTool('collect_catalog_snapshot', {
+    description: 'Start an explicitly requested bulk storefront collection. This saves an anonymous catalog dataset. Poll the same run ID with read_catalog_snapshot.',
+    inputSchema: { queries: z.array(z.string().trim().min(1).max(150)).min(1).max(10), maxItems: z.number().int().min(1).max(1000).default(20) },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async ({ queries, maxItems }) => {
+    const result = await collectSnapshot(queries, { background: true, maxItems });
+    return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+  });
+  tool('read_catalog_snapshot', 'Read a bounded page of an existing catalog run. Show failed or running results as partial. Use nextOffset for continuation.',
+    { runId: z.string().uuid(), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(100).default(20) },
+    ({ runId, offset, limit }) => readSnapshot(runId, { offset, limit }));
   return server;
 }

@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { HttpError, NetworkError, GraphQLError } from './api/index.js';
 
 const COMMANDS = {
+  snapshot: () => import('./commands/snapshot.js'),
   info: () => import('./commands/info.js'),
   plan: () => import('./commands/plan.js'),
   compare: () => import('./commands/compare.js'),
@@ -14,6 +15,7 @@ const COMMANDS = {
 const USAGE = `drogasil - read-only CLI for drogasil.com.br
 
 Usage:
+  drogasil snapshot collect|read|export ...
   drogasil info "<medication or SKU>" ["<another medication>" ...] [--brazil] [--json]
   drogasil plan "<medication A>" ["<medication B>" ...] (--cep CEP | --lat LAT --lon LON) [--expand] [--json]
   drogasil compare <medication name and strength | SKU> [--cep CEP | --lat LAT --lon LON] [--expand] [--json]
