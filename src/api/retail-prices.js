@@ -37,8 +37,16 @@ function reference(p) { return { ...productInfo(p), gtin: String(p.eanCode ?? ''
 export async function compareRetailPrices(input, { zipcode, retailers, includeGenerics = false }) {
   const query = String(input).trim();
   zipcode = normalizeCep(zipcode);
-  let hits;
-  if (validBarcode(query)) hits = (await searchProducts(query, { hitsPerPage: 100 })).hits.filter(p => String(p.eanCode) === query);
+  const exactGtin = validBarcode(query);
+  let hits, catalogFailed = false;
+  if (exactGtin) {
+    try {
+      hits = (await searchProducts(query, { hitsPerPage: 100 })).hits.filter(p => String(p.eanCode) === query);
+    } catch {
+      hits = [];
+      catalogFailed = true;
+    }
+  }
   else if (/^\d+$/.test(query)) hits = (await getProductsBySku([query])).filter(Boolean);
   else {
     const r = await compareProducts(query, { resolveNames:true, includeUnpriced:true });
@@ -49,11 +57,12 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
   const unique = new Map(hits.map(p => [String(p.sku),p]));
   if (unique.size > 1) return { status: 'ambiguous', candidates: [...unique.values()].map(reference) };
   const hit = [...unique.values()][0];
-  if (!hit) return { status: 'no_reference', verifiedOffers: [], onlineOffers: [], checkedRetailers:['Drogasil'] };
-  const anchor = reference(hit);
-  if (!validBarcode(anchor.gtin)) return { status: 'missing_gtin', reference:anchor };
+  if (!hit && !exactGtin) return { status: 'no_reference', verifiedOffers: [], onlineOffers: [], checkedRetailers:['Drogasil'] };
+  let anchor = hit ? { ...reference(hit), retailer: 'Drogasil' } : null;
+  if (anchor && !validBarcode(anchor.gtin)) return { status: 'missing_gtin', reference:anchor };
   const verifiedOffers = [], onlineOffers = [], checked = [], issues = [];
-  try {
+  if (!hit) checked.push({ retailer: 'Drogasil', status: catalogFailed ? 'source_failed' : 'no_exact_match' });
+  else try {
     const { snapshot } = await readStorefront(hit,query);
     onlineOffers.push({ retailer:'Drogasil', sku:anchor.sku, gtin:anchor.gtin, name:anchor.name, seller:snapshot.seller,
       currentPrice:snapshot.currentPrice,listPrice:snapshot.listPrice,inStock:snapshot.inStock, currency:'BRL',
@@ -62,15 +71,23 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
   } catch { checked.push({ retailer:'Drogasil',status:'source_failed' }); }
   for (const provider of retailers) {
     try {
-      const candidates = await provider.byGtin(anchor.gtin);
-      const matched = candidates.filter(row => samePack(anchor,row));
+      if (provider.serves && !await provider.serves(zipcode)) {
+        checked.push({ retailer: provider.name, status: 'outside_local_directory' });
+        continue;
+      }
+      const candidates = await provider.byGtin(anchor?.gtin ?? query);
+      if (!anchor) {
+        const row = candidates.find(candidate => candidate.gtin === query && samePack(candidate, candidate));
+        if (row) anchor = { retailer: provider.name, sku: row.sku, gtin: row.gtin, name: row.name, itemName: row.itemName };
+      }
+      const matched = anchor ? candidates.filter(row => samePack(anchor,row)) : [];
       let verified = 0;
       for (const row of matched) {
         let offer = row;
         try { offer = await provider.local(row,zipcode); }
         catch { issues.push({ retailer:provider.name, sku:row.sku, status:'location_lookup_failed' }); }
         const { facts, methods = [], branches, ...publicFields } = offer;
-        const entry = { ...publicFields, fulfillment: [...new Set(methods.map(m=>m.channel))] };
+        const entry = { ...publicFields, ...(branches ? { reportedBranches: branches } : {}), fulfillment: [...new Set(methods.map(m=>m.channel))] };
         if (offer.priceScope === 'verified_for_cep' && Number.isFinite(offer.currentPrice)) {
           verifiedOffers.push(entry); verified++;
         } else onlineOffers.push(entry);
@@ -80,8 +97,10 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
     } catch { checked.push({ retailer:provider.name,status:'source_failed' }); }
   }
   verifiedOffers.sort((a,b)=>a.currentPrice-b.currentPrice || a.retailer.localeCompare(b.retailer));
+  if (!anchor) return { status: 'no_reference', verifiedOffers, onlineOffers, checkedRetailers: checked, issues };
   const genericOptions = [];
-  if (includeGenerics) {
+  if (includeGenerics && !hit) issues.push({ retailer: 'Drogasil', status: 'generic_reference_unavailable' });
+  if (includeGenerics && hit) {
     const result = await compareProducts(anchor.sku,{ resolveNames:true });
     for (const product of result.products ?? []) {
       const option = reference(product);
