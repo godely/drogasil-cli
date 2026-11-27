@@ -36,3 +36,11 @@ test('a GTIN resolves independently when the Drogasil catalog fails and skips re
   assert.deepEqual(result.checkedRetailers.map(chain => chain.status), ['source_failed','outside_local_directory','verified']);
   assert.equal(result.issues[0].status, 'generic_reference_unavailable');
 });
+
+
+test('a promotional extra in the storefront title cannot inherit exact-pack coverage from the base item', () => {
+  const reference={gtin:'7899547543766',name:'Exemplo 2mg 30 comprimidos'};
+  const bundle={...reference,itemName:reference.name,name:reference.name+' + 1 Porta-Comprimidos'};
+  assert.equal(samePack(reference,bundle),false);
+  assert.equal(samePack(bundle,reference),false);
+});
