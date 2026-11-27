@@ -30,3 +30,17 @@ jobs:
           node-version: 'lts/*'
       - run: npm ci --prefix mcp
       - run: npm test --prefix mcp
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify reproducible plugin packaging
+        run: |
+          for build in first second; do
+            python3 scripts/package-plugin.py --app-id asdk_app_fixture --output "$RUNNER_TEMP/$build.zip"
+          done
+          cmp "$RUNNER_TEMP/first.zip" "$RUNNER_TEMP/second.zip"
+          unzip -t "$RUNNER_TEMP/first.zip"
+          for skill in skills/*/SKILL.md; do
+            unzip -p "$RUNNER_TEMP/first.zip" "$skill" | cmp "$skill" -
+          done
