@@ -12,6 +12,20 @@ Assessment of the November 2026 snapshot. The Actor collects anonymous storefron
 | Plan a basket | No branch assignment | Brand preferences, quantities, fewest stops and estimated lowest total |
 | Ask about medication | Some facts appear in titles | Sourced presentations and prescription fields, with partial national coverage |
 
+## Implemented coverage
+
+| Capability | Implementation on main | Verification |
+|---|---|---|
+| Search and deduplication | Ordered queries, pagination, attribution to the first matching query, 1,000 unique SKUs per run | A synthetic 10-query run included overlapping pages and reached 1,000 unique rows. The authenticated MCP also collected and read a live two-product run. |
+| Actor dataset fields | SKU, name, brand, categories and path, product URL, current and list prices, discount, currency, stock signal, in-stock flag, search query, source URL and observation time | Thirty storefront pages produced matching advertised selling prices. Source fields that were missing remained unknown. |
+| Persistent results and exports | SQLite run IDs, bounded reads, terminal status and JSON, CSV and XLSX export | Partial-failure tests preserve earlier records. The export check read back a live dataset in each format. |
+| Scheduling and integrations | A systemd timer or cron can launch the collector. The HTTPS webhook can deliver results to a workflow receiver. Sheets can import the spreadsheet exports. | A one-shot systemd timer ran on the deployment host. A local HTTPS receiver received the dataset and its idempotency header. Hosted Make, Zapier and Sheets account integrations were outside that test. |
+| Additional pharmacy workflows | Compare equivalent presentations, check branch quantities, plan purchases and compare identical packs across chains at a supplied location | The shared-pack pilot confirmed 25 matching presentations at two locations. The four-chain client also checked a single shared pack in all state capitals and five interior cities. |
+
+The original benchmark used the Actor's public schema. A paid run comparing row-by-row results and throughput against the Actor remains unmeasured. The hosted Apify platform also provides its own scheduler and dataset UI. Our deployment exposes the CLI, API and MCP for these workflows.
+
+[Snapshot usage](catalog-snapshots.md) · [Storefront field audit](storefront-audit.md) · [Exact-pack pilot](local-price-pilot.md) · [Four-chain API](https://github.com/godely/farmacias-br)
+
 ## Reproduction
 
 Use the same SKU to compare product identity. Observe online offers in the same session and record seller, collection time and offer conditions. Exercise brand-only and brand-plus-generic queries, a mixed basket, an ambiguous name, a presentation conflict, a no-stock response, and a fixed-branch lookup. Supply test origins at runtime. Compare counts, product IDs and stock status independently of fluctuating quantities. Record tool calls separately from upstream requests. Report missing data and unauthenticated runs explicitly.
