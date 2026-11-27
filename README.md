@@ -209,3 +209,5 @@ python3 scripts/package-plugin.py --app-id "$DROGASIL_APP_ID" --output /tmp/drog
 ```
 
 [Comparison with the Apify Drogasil Actor and benchmark method](docs/catalog-comparison.md)
+
+[Bulk catalog snapshots, scheduled delivery and spreadsheet exports](docs/catalog-snapshots.md)
