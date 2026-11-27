@@ -13,7 +13,6 @@ export const options = { cep: { type: 'string' }, lat: { type: 'string' }, lon: 
 const issues = { no_reference: 'Apresentação não encontrada', conflicting_release: 'Confirme o tipo de liberação',
   ambiguous: 'Qual apresentação?', presentation_options: 'Qual apresentação?', preference_unavailable: 'Preferência indisponível',
   catalog_lookup_failed: 'Falha na consulta ao catálogo' };
-const titles = { both: 'Menos lojas e menor preço estimado', fewest_stores: 'Menos lojas', lowest_price: 'Menor preço estimado' };
 
 export function renderPurchase(result) {
   const out = [];
@@ -33,7 +32,7 @@ export function renderPurchase(result) {
     out.push('');
   }
   for (const plan of result.plans) {
-    out.push((result.searchComplete ? '' : 'Melhor plano encontrado · ') + titles[plan.objective] + (plan.unfilled.length ? ' · parcial' : '') + ' — ' +
+    out.push((result.searchComplete ? '' : 'Melhor plano encontrado · ') + plan.label + (plan.unfilled.length ? ' · parcial' : '') + ' — ' +
       [plan.stopCount + ' parada(s)', (formatKm(plan.roundTripKm) || 'distância desconhecida') + ' ida e volta',
         formatPrice(plan.totalBRL) || 'total desconhecido'].join(' · '));
     for (const [i, stop] of plan.stops.entries()) {

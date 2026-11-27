@@ -71,6 +71,8 @@ test('choices bind to SKUs before refresh, preserve restrictions and identify a 
   const refreshed = await planPurchase(selected, { origin });
   assert.deepEqual(refreshed.tables[0].rows.map(p => p.sku), ['11']);
   assert.equal(refreshed.plans[0].objective, 'both');
+  assert.equal(refreshed.plans[0].label, 'Menos lojas e menor preço estimado');
+  assert.equal(refreshed.plans[0].stopCount, 1);
   inventory[11] = [0, 0, 0];
   const missing = await planPurchase(selected, { origin });
   assert.equal(missing.status, 'partial');

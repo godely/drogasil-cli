@@ -143,7 +143,8 @@ export function optimizePlans(lines, coordinates) {
   visit(0, 0);
   function summarize(result, objective) {
     const assigned = new Set(result.picks.map(c => c.table));
-    return { objective, stopCount: result.route.ids.length, roundTripKm: result.route.km,
+    const labels = { both: 'Menos lojas e menor preço estimado', fewest_stores: 'Menos lojas', lowest_price: 'Menor preço estimado' };
+    return { objective, label: labels[objective], stopCount: result.route.ids.length, roundTripKm: result.route.km,
       totalBRL: Number.isFinite(result.cost) ? result.cost / 100 : null,
       unfilled: lines.filter(line => !assigned.has(line.label)).map(line => line.label),
       stops: result.route.ids.map(id => {

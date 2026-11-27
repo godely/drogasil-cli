@@ -176,6 +176,7 @@ export async function planPurchase(items, { origin, store, expandSku = false } =
     scope: store ?? 'nearest_stocked_per_option', checkedAt: new Date().toISOString(), tables,
     ...(store === 'nearest' && nearestStore ? { fixedBranchId: nearestStore.id } : {}),
     ...optimized, tradeoff, directoryFailed,
+    ...(items.length > 1 ? { planGuidance: 'Use the exact plan label. Describe travel and stops only for the pickups in a returned plan. Each table row hides other stocked branches. For unselected alternatives, offer the option ID and wait for a preference before stating their stop count, itinerary or distance.' } : {}),
     stockIncomplete: tables.some(t => t.unknown.length || t.failed.length || t.status === 'catalog_lookup_failed'),
     priceIncomplete: eligible.some(line => line.choices.some(c => !Number.isFinite(c.cost))) };
 }

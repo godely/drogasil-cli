@@ -170,6 +170,8 @@ const items = [{ query: 'Frontal 2 mg' }, { query: 'Tylenol 750 mg 20 comprimido
 const result = await planPurchase(items, { origin: { zipcode: process.env.CEP } });
 ```
 
+After updating an existing Claude connector, use **Refresh tools list** in its plugin menu and verify that `plan_purchase` appears.
+
 The MCP tool `plan_purchase` takes the same `items`, `origin`, and optional `store: "nearest"` in one call. Each numbered row shows the closest branch reporting enough packs for that line. The planner uses all checked branches for its trips and accounts for stock shared by multiple lines. Each pickup fills one line at one branch. When the whole basket cannot be filled, the planner maximizes the number of complete lines and identifies the remainder.
 
 The fewest-stores plan breaks ties by straight-line round-trip distance and then reference price. The cheapest plan breaks ties by number of stores and then distance. Missing prices yield unknown totals. Store-to-store distances use the directory coordinates. The stock service supplies distances from the origin. Large searches have a bounded computation budget. Check `searchComplete`, `priceIncomplete` and `stockIncomplete` before describing a plan as optimal.
