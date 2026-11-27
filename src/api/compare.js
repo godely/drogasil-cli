@@ -1,6 +1,7 @@
 import { getProductsBySku, searchProducts } from './algolia.js';
 import { normalizeCep } from './graphql.js';
 import { resolveMedication, ingredientPresentations } from './medications.js';
+import { documentedConventionalTablet } from './regulatory-info.js';
 import { brandOptions } from './product-info.js';
 import { searchStockWindows, stockQuantity } from './stock-search.js';
 import { parseCoords } from '../geo.js';
@@ -117,9 +118,21 @@ async function searchAll(query, filters) {
   return hits;
 }
 
-async function referenceOptions(query) {
-  if (/^\d+$/.test(query)) return (await getProductsBySku([query])).filter(Boolean);
-  const candidates = (await searchAll(query)).filter(product => matchesRequest(product, query));
+const immediateLabel = /\b(?:liberacao (?:imediata|convencional)|immediate[- ]release|ir)\b/;
+const extendedLabel = /\b(?:xr|xl|er|sr|lp|liberacao (?:prolongada|lenta)|extended[- ]release)\b/;
+const otherModifiedLabel = /\b(?:cr|dr|la|mr|retard|chrono|depot|gastrorresistente|liberacao (?:modificada|controlada|retardada|bifasica))\b/;
+
+function matchesRelease(product, release) {
+  if (!release) return true;
+  const label = normalize([product.name, product.brand, product.filters?.['Forma farmacêutica'], product.details?.quantidade].join(' '));
+  if (release === 'extended') return extendedLabel.test(label) && !immediateLabel.test(label);
+  return !extendedLabel.test(label) && !otherModifiedLabel.test(label) &&
+    (immediateLabel.test(label) || documentedConventionalTablet(product));
+}
+
+async function referenceOptions(query, release) {
+  if (/^\d+$/.test(query)) return (await getProductsBySku([query])).filter(p => p && matchesRelease(p, release));
+  const candidates = (await searchAll(query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
   const exact = candidates.filter(product => {
     const brandDose = [product.brand, ...(product.details?.dosageList ?? [])].join(' ');
     return [product.name, brandDose].some(value => normalize(value) === normalize(query));
@@ -134,22 +147,34 @@ export async function compareProducts(query, { origin = null, store, resolveName
     throw new TypeError('store requires an origin and either nearest or a numeric store ID');
   }
   query = String(query).trim();
-  const release = normalize(query);
-  if (/\b(?:xr|xl|sr|er|lp|liberacao (?:prolongada|modificada|controlada)|extended[- ]release)\b/.test(release) &&
-      /\b(?:liberacao imediata|immediate[- ]release)\b/.test(release)) {
+  const label = normalize(query);
+  const immediate = immediateLabel.test(label);
+  if (immediate && (extendedLabel.test(label) || otherModifiedLabel.test(label))) {
     return { status: 'conflicting_release', products: [],
       hint: 'Ask which release the user intends. Stock has not been checked for either presentation.' };
   }
-  const resolved = (resolveNames || includeGenerics !== undefined) ? await resolveMedication(query) : null;
+  const release = immediate ? 'immediate' : extendedLabel.test(label) ? 'extended' : null;
+  // Keep brand suffixes such as XR in the search. Descriptive release wording is
+  // checked against each candidate, as the conventional form often omits it.
+  const lookup = !release ? query : query.replace(/\b(?:de\s+)?libera[çc][ãa]o\s+(?:imediata|convencional|prolongada|lenta)\b|\b(?:immediate|extended)[- ]release\b|\bir\b/gi, ' ')
+    .replace(/\s+,|,(?!\d)/g, ' ').replace(/\s+/g, ' ').trim();
+  const resolved = lookup && (resolveNames || includeGenerics !== undefined) ? await resolveMedication(lookup) : null;
   if (resolved?.status === 'ambiguous') return resolved;
   const info = resolved?.interpretation ? { interpretation: resolved.interpretation } : {};
   let refs;
-  if (resolved?.filters) {
+  if (!lookup) {
+    refs = [];
+  } else if (resolved?.filters) {
     const suffix = catalogQuery(resolved.suffix);
-    refs = await ingredientPresentations(query, { ...resolved, suffix }, includeUnpriced);
-    if (suffix) refs = refs.filter(product => matchesRequest(product, suffix));
+    refs = await ingredientPresentations(lookup, { ...resolved, suffix }, includeUnpriced);
+    refs = refs.filter(product => (!suffix || matchesRequest(product, suffix)) && matchesRelease(product, release));
+    if (!refs.length && release === 'extended' && resolved.kind === 'brand') {
+      const family = normalize(resolved.name);
+      refs = (await referenceOptions(catalogQuery(lookup), release)).filter(product =>
+        normalize(product.brand).startsWith(family + ' '));
+    }
   } else {
-    refs = await referenceOptions(catalogQuery(query));
+    refs = await referenceOptions(catalogQuery(lookup), release);
   }
   refs = refs.filter(product => product.isActive !== false);
   if (!refs.length) return { ...info, status: 'no_reference', products: [], hint: 'No catalog match for the supplied name and presentation. Ask for clarification before changing strength, release or pack.' };

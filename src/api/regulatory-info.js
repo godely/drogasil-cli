@@ -15,6 +15,18 @@ const leaflets = [
   ['Rivotril', 'clonazepam', 'solução oral (gotas)', 'oral', null, ['2,5 mg/mL'], '20 mL', clonazepamLeaflet],
 ];
 
+// The catalog often omits the release label for conventional tablets.
+export function documentedConventionalTablet(product) {
+  const ingredients = product.details?.activeIngredients;
+  if (ingredients?.length !== 1 || !/^comprimidos?$/.test(fold(product.filters?.['Forma farmacêutica'] ?? ''))) return false;
+  const [active] = ingredients;
+  const strength = fold(String(active.dosageValue) + ' ' + (active.unitOfMeasurement?.name ?? '')).replace(',', '.');
+  return leaflets.some(([brand, ingredient, form, , release, strengths, pack]) =>
+    release === 'convencional' && form === 'comprimido' && fold(product.brand ?? '') === fold(brand) &&
+    fold(active.description ?? '') === ingredient && fold(product.details.quantidade ?? '') === pack &&
+    strengths.some(value => value.replace(',', '.') === strength));
+}
+
 const simpleOralRules = new Map([
   ['alprazolam', 'Notificação de Receita B'], ['clonazepam', 'Notificação de Receita B'],
   ['metilfenidato', 'Notificação de Receita A'], ['sibutramina', 'Notificação de Receita B2'],
