@@ -1,6 +1,6 @@
 import { searchProducts, getProductsBySku } from './algolia.js';
 import { compareProducts } from './compare.js';
-import { productInfo } from './product-info.js';
+import { medicationType, productInfo } from './product-info.js';
 import { readStorefront } from './storefront.js';
 import { normalizeCep } from './graphql.js';
 
@@ -57,7 +57,7 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
   const unique = new Map(hits.map(p => [String(p.sku),p]));
   if (unique.size > 1) return { status: 'ambiguous', candidates: [...unique.values()].map(reference) };
   const hit = [...unique.values()][0];
-  if (!hit && !exactGtin) return { status: 'no_reference', verifiedOffers: [], onlineOffers: [], checkedRetailers:['Drogasil'] };
+  if (!hit && !exactGtin) return { status: 'no_reference', verifiedOffers: [], onlineOffers: [], checkedRetailers:[{ retailer:'Drogasil', status:'no_exact_match' }] };
   let anchor = hit ? { ...reference(hit), retailer: 'Drogasil' } : null;
   if (anchor && !validBarcode(anchor.gtin)) return { status: 'missing_gtin', reference:anchor };
   const verifiedOffers = [], onlineOffers = [], checked = [], issues = [];
@@ -65,7 +65,7 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
   else try {
     const { snapshot } = await readStorefront(hit,query);
     onlineOffers.push({ retailer:'Drogasil', sku:anchor.sku, gtin:anchor.gtin, name:anchor.name, seller:snapshot.seller,
-      currentPrice:snapshot.currentPrice,listPrice:snapshot.listPrice,inStock:snapshot.inStock, currency:'BRL',
+      currentPrice:snapshot.currentPrice,listPrice:snapshot.listPrice,inStock:snapshot.inStock, currency:'BRL', type:anchor.type,
       productUrl:snapshot.productUrl, observedAt:snapshot.scrapedAt, priceScope:'anonymous_online' });
     checked.push({ retailer:'Drogasil', status:'online_only' });
   } catch { checked.push({ retailer:'Drogasil',status:'source_failed' }); }
@@ -87,7 +87,13 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
         try { offer = await provider.local(row,zipcode); }
         catch { issues.push({ retailer:provider.name, sku:row.sku, status:'location_lookup_failed' }); }
         const { facts, methods = [], branches, ...publicFields } = offer;
-        const entry = { ...publicFields, ...(branches ? { reportedBranches: branches } : {}), fulfillment: [...new Set(methods.map(m=>m.channel))] };
+        const entry = { ...publicFields, type: offer.type ?? medicationType(offer),
+          ...(branches ? { reportedBranches: branches } : {}),
+          fulfillment: [...new Set(methods.map(m => m.channel))],
+          fulfillmentOptions: methods.map(({ channel, service, feeBRL, pickupPointId, branch, address }) => ({
+            channel, service, feeBRL, ...(channel === 'pickup-in-point' && { pickupPointId, branch, address }),
+          })),
+        };
         if (offer.priceScope === 'verified_for_cep' && Number.isFinite(offer.currentPrice)) {
           verifiedOffers.push(entry); verified++;
         } else onlineOffers.push(entry);
@@ -100,13 +106,13 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
   if (!anchor) return { status: 'no_reference', verifiedOffers, onlineOffers, checkedRetailers: checked, issues };
   const genericOptions = [];
   if (includeGenerics && !hit) issues.push({ retailer: 'Drogasil', status: 'generic_reference_unavailable' });
-  if (includeGenerics && hit) {
+  if (includeGenerics && hit) try {
     const result = await compareProducts(anchor.sku,{ resolveNames:true });
     for (const product of result.products ?? []) {
       const option = reference(product);
       if (option.type === 'Genérico' && option.sku !== anchor.sku) genericOptions.push(option);
     }
-  }
+  } catch { issues.push({ retailer: 'Drogasil', status: 'generic_lookup_failed' }); }
   return { status:'matched', reference:anchor, verifiedOffers, onlineOffers, genericOptions, checkedRetailers:checked, issues,
     conditions:'Anonymous prices for one pack. Delivery fees and personalized discounts are excluded. Online-only prices have no verified local quote.' };
 }

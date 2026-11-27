@@ -20,10 +20,17 @@ test('a GTIN resolves independently when the Drogasil catalog fails and skips re
     zipcode: '01001000', includeGenerics: true, retailers: [
       { name: 'Outside', serves: async () => false, byGtin: () => assert.fail('outside the area') },
       { name: 'Available', byGtin: async () => [row], local: async () => ({
-        ...row, retailer: 'Available', currentPrice: 7, methods: [], priceScope: 'verified_for_cep'
+        ...row, retailer: 'Available', currentPrice: 7, methods: [
+          { channel:'pickup-in-point', service:'Retirada', feeBRL:0, pickupPointId:'1_7', branch:'Centro', address:{city:'São Paulo'} },
+          { channel:'delivery', service:'Entrega', feeBRL:8, address:{postalCode:'redacted-delivery-address'} },
+        ], priceScope: 'verified_for_cep'
       }) }
     ]
   });
+  const [offer] = result.verifiedOffers;
+  assert.equal(offer.fulfillmentOptions[0].pickupPointId, '1_7');
+  assert.equal(offer.fulfillmentOptions[0].feeBRL, 0);
+  assert.equal(offer.fulfillmentOptions[1].address, undefined);
   assert.equal(result.reference.retailer, 'Available');
   assert.deepEqual(result.verifiedOffers.map(offer => offer.sku), ['10']);
   assert.deepEqual(result.checkedRetailers.map(chain => chain.status), ['source_failed','outside_local_directory','verified']);
