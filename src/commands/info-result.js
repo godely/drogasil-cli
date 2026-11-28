@@ -16,10 +16,12 @@ export function renderInfoResult(result, retailer) {
   if (result.nationalStatus === 'source_failed' || national?.lookupFailed)
     lines.push('Falha ao consultar as apresentações nacionais.', national?.lookup);
 
-  if (result.products.length) lines.push('Catálogo ' + retailer);
-  for (const p of result.products) {
+  if (result.products.length || result.unconfirmedProducts?.length) lines.push('Catálogo ' + retailer);
+  for (const p of [...result.products, ...(result.unconfirmedProducts ?? [])]) {
     lines.push([p.name, p.type].filter(Boolean).join(' · '));
     if (p.manufacturer) lines.push('Fabricante: ' + p.manufacturer);
+    if (p.manufacturerClaims?.length) lines.push('Fabricante não confirmado. As fontes citam ' +
+      p.manufacturerClaims.map(claim => claim.name).join(' e ') + '.');
     if (p.ingredients) {
       lines.push('Princípios ativos: ' + (p.ingredients.map(a => [a.name, a.strength ?? unknown].join(' ')).join(' + ') || unknown));
     } else {
@@ -33,7 +35,8 @@ export function renderInfoResult(result, retailer) {
     lines.push('Precisa de receita? ' + yesNo(rx.required) + ' · A farmácia retém? ' + yesNo(rx.retained) +
       ' · Qual receituário? ' + (rx.form ?? unknown));
     if (rx.conflict) lines.push('As fontes divergem sobre a receita.');
-    for (const url of new Set([p.source, p.presentationSource, p.manufacturerSource, rx.rule].filter(Boolean))) lines.push(url);
+    for (const url of new Set([p.source, p.presentationSource, p.manufacturerSource,
+      ...(p.manufacturerClaims ?? []).map(claim => claim.url), rx.rule, rx.stripeRule].filter(Boolean))) lines.push(url);
   }
   if (result.status === 'source_failed') lines.push('Falha ao consultar o catálogo de ' + retailer + '.');
   if (result.status === 'partial') lines.push('Consulta parcial ao catálogo de ' + retailer + '.');

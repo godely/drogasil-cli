@@ -26,7 +26,7 @@ function retailerPrescription(fields, ingredients, routes, prescriptionEvidence)
   const retentionLabel = values(fields['Retenção de Receita']);
   const evidence = [...labels, ...retentionLabel, prescriptionEvidence?.required === true ? 'Receita obrigatória' : ''].join(' ');
   const prescription = prescriptionInfo(evidence, '', ingredients.map(name => name.replace(/^com\s+/iu,'')),
-    routes.length === 1 ? routes[0] : null);
+    routes.length === 1 ? routes[0] : null, values(fields['Classificação'], fields.Tarja));
   if (prescription.required === null && labels.some(label => /^sob prescri[çc][ãa]o(?: m[eé]dica)?$/iu.test(label)) && !prescription.conflict)
     prescription.required = true;
   const hasList = /\b(?:lista\s+)?[abc]\s*[-–]?\s*[1-5]\b/iu;
@@ -58,9 +58,10 @@ export function medicationCard(row) {
     /(?:%|\/\s*(?:\d+(?:[.,]\d+)?\s*)?(?:mL|L|g|h|dose|gotas?))$/iu.test(value.trim()));
   const uniqueDosages = new Map(dosage.map(value => [value.toLowerCase().replace(/\s+/g, '').replace(',', '.'), value]));
   const makers = values(fields.Fabricante, row.manufacturer);
-  const manufacturer = makers.length === 1 ? makers[0] : null;
+  const manufacturer = makers.length === 1 && !row.manufacturerClaims?.length ? makers[0] : null;
   return { sku: row.sku, gtin: row.gtin ?? null, name: title, type: catalogType(row), source: row.productUrl ?? null,
     manufacturer, manufacturerSource:manufacturer ? row.manufacturerSource ?? row.productUrl ?? null : null,
+    ...(row.manufacturerClaims && {manufacturerClaims:row.manufacturerClaims}),
     activeIngredients, ingredientEvidence: row.ingredientEvidence ?? (activeIngredients.length ? {source:'retailer_field'} : null),
     strengths: [...uniqueDosages.values()], forms,
     routes,
@@ -117,7 +118,7 @@ export async function catalogInfo({retailer, queries, page = 1, limit = 20, scop
     const bySku = /^\d+$/.test(query);
     let result;
     try {
-      let products, issues = [];
+      let products, unconfirmed = [], issues = [];
       if (requestsDrops(query) && source.facts && source.factsByGtin) {
         const found = await dropCards(query, source, referenceRecords);
         products = found.cards.slice((page-1)*limit, page*limit);
@@ -125,16 +126,17 @@ export async function catalogInfo({retailer, queries, page = 1, limit = 20, scop
       } else {
         let rows;
         if (source.factsPage) {
-          ({rows, issues} = await source.factsPage(query, page, limit));
+          ({rows, issues, unconfirmed = []} = await source.factsPage(query, page, limit));
         } else {
           rows = source.facts ? await source.facts(query,page,limit)
             : bySku ? await source.product(query) : await source.search(query,page,limit);
         }
         products = [...new Map(rows.map(row => [row.sku, medicationCard(row)])).values()];
       }
-      const status = issues.length ? (products.length ? 'partial' : 'source_failed') :
+      const status = unconfirmed.length ? 'partial' : issues.length ? (products.length ? 'partial' : 'source_failed') :
         products.length ? 'matches' : bySku ? 'unknown_sku' : 'no_match';
-      result = {query, status, products, ...(issues.length && {issues})};
+      result = {query, status, products, ...(issues.length && {issues}),
+        ...(unconfirmed.length && {unconfirmedProducts:unconfirmed.map(medicationCard)})};
     } catch {
       result = {query, status:'source_failed', products:[]};
     }

@@ -80,3 +80,42 @@ test('explicit prescription evidence independently complements a pharmacy retent
   assert.equal(card('Venda livre',label).prescription.conflict,true);
   assert.equal(card('',label).prescription.retained,null);
 });
+
+test('a published red or black stripe establishes prescription without assuming retention or a form', async () => {
+  const {medicationCard} = await import('../src/retailers/catalog.js');
+  const {renderInfoResult} = await import('../src/commands/info-result.js');
+  const card = (stripe, retention) => medicationCard({name:'Exemplo', productUrl:'https://example.test/pack',
+    facts:{'Classificação':stripe,'Prescrição Médica':retention}});
+  for (const stripe of ['Tarja Vermelha','Tarja Preta']) {
+    const rx = card(stripe).prescription;
+    assert.equal(rx.required,true);
+    assert.equal(rx.retained,null);
+    assert.equal(rx.form,null);
+    assert.match(rx.stripeRule,/gov\.br\/anvisa\//);
+  }
+  const pack = card(['Tarja Vermelha'],'Sem Retenção De Receita');
+  assert.deepEqual([pack.prescription.required,pack.prescription.retained],[true,false]);
+  assert.ok(renderInfoResult({products:[pack]},'Rede').includes(pack.prescription.stripeRule));
+  assert.equal(card('Tarja Vermelha','Venda livre').prescription.conflict,true);
+  for (const label of [undefined, 'Sem tarja','Sem tarja vermelha','Tarja desconhecida',['Tarja preta','Sem tarja']])
+    assert.equal(card(label,'Sem Retenção De Receita').prescription.required,null);
+});
+
+test('pack facts with conflicting manufacturer evidence are kept apart from verified manufacturer matches', async () => {
+  const {renderInfoResult,infoExitCode} = await import('../src/commands/info-result.js');
+  const claims = [{name:'Empresa A',url:'https://example.test/a'}, {name:'Empresa B',url:'https://example.test/b'}];
+  const row = {sku:'5',name:'Exemplo 30 cápsulas',manufacturer:'Empresa A',manufacturerClaims:claims,
+    facts:{'Classificação':'Tarja Vermelha','Prescrição Médica':'Sem Retenção de Receita'}};
+  const source = {factsPage:async () => ({rows:[],issues:[],unconfirmed:[row]})};
+  const {results} = await catalogInfo({retailer:'partner',queries:['Exemplo Empresa A']},source);
+  assert.equal(results[0].status,'partial');
+  assert.deepEqual(results[0].products,[]);
+  const [uncertain] = results[0].unconfirmedProducts;
+  assert.equal(uncertain.manufacturer,null);
+  assert.equal(uncertain.prescription.required,true);
+  assert.equal(uncertain.prescription.retained,false);
+  const rendered = renderInfoResult(results[0],'Rede');
+  assert.match(rendered,/Fabricante não confirmado.*Empresa A e Empresa B/);
+  assert.ok(claims.every(claim => rendered.includes(claim.url)));
+  assert.equal(infoExitCode(results),2);
+});
