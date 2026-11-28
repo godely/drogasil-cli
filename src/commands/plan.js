@@ -25,6 +25,27 @@ const catalogNotes = {
 };
 
 export function purchaseCatalogNotice(table) {
+  if (table.comparisonOptions?.length) {
+    const out = ['A busca não encontrou a caixa de ' + table.requestedBrand.name + ' nessa rede. Para comparar a apresentação:'];
+    for (const row of table.comparisonOptions) {
+      const price = formatPrice(row.currentPrice) || 'preço não informado';
+      const pickup = row.closestQuotedPickup ?? row.methods?.find(m=>m.channel==='pickup-in-point' && m.pickupPointId);
+      let note = '';
+      if (row.localStatus === 'available' && pickup) {
+        note = ' · retirada de ' + row.requestedQuantity + ' caixa(s) em ' + (pickup.branch || 'filial indicada pela rede');
+        if (row.closestQuotedPickup) note += ' ' + formatKm(pickup.distanceKm);
+      } else if (row.localStatus) {
+        note = row.localStatus === 'unavailable' || row.pickupAtStore === 'not_offered' ? ' · retirada não oferecida' : ' · retirada sem confirmação';
+      }
+      out.push('• ' + row.name + ' (Genérico) · ' + price + note);
+    }
+    if (table.comparisonStatus==='partial' || table.comparisonQuoteStatus==='partial') out.push('A consulta à rede ficou incompleta.');
+    out.push('A Anvisa orienta que um genérico não substitui diretamente um similar prescrito. ' + table.registeredPresentation.guidanceUrl);
+    return out.join('\n');
+  }
+  if (table.comparisonStatus === 'unverified_reference_presentation') {
+    return 'A busca não encontrou a caixa de ' + table.requestedBrand.name + ' nessa rede. Os dados disponíveis não confirmam a mesma apresentação para comparar um genérico. O estoque ficou sem confirmação.';
+  }
   if (table.status === 'no_match' && table.requestedBrand?.status === 'no_exact_catalog_match') {
     return 'A busca não encontrou a caixa de ' + table.requestedBrand.name +
       ' no catálogo da rede. Também não consegui confirmar um genérico com a mesma apresentação. O estoque ficou sem confirmação.';

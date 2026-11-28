@@ -2,6 +2,7 @@ import { fold, resolveMedication } from '../api/medications.js';
 import { documentedDrops, matchesLabeledDropRequest, requestsDrops } from '../api/presentation-label.js';
 import { matchesDropListing } from './drop-listing.js';
 import { countedOffers } from './counted-offers.js';
+import { compareRegisteredBrand } from './registered-packs.js';
 import { compareProducts, medicationType, samePack, searchProducts } from '../api/index.js';
 import { validBarcode as validGtin } from '../api/retail-prices.js';
 import { catalogType } from './catalog.js';
@@ -96,8 +97,12 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
     const requested = new Set((equivalents.requestedBrandSkus ?? []).map(String));
     const originals = equivalents.products.filter(p => requested.has(String(p.sku)));
     if (!originals.length) return result;
-    return verifiedGenericOffers({...result,requestedBrand:{name:brand,status:'no_exact_catalog_match'}},
-      equivalents,source,new Set(originals.map(p=>String(p.eanCode))));
+    const missing = {...result,requestedBrand:{name:brand,status:'no_exact_catalog_match'}};
+    const comparison = await compareRegisteredBrand(retailer,originals,brand,source,query);
+    if (comparison) return {...missing,...comparison, status:
+      comparison.comparisonStatus === 'source_failed' ? 'source_failed' :
+      comparison.comparisonStatus === 'partial' ? 'partial' : comparison.comparisonOptions.length ? 'presentation_comparison' : 'no_match'};
+    return verifiedGenericOffers(missing,equivalents,source,new Set(originals.map(p=>String(p.eanCode))));
   }
   if (distinct.length > 1) return {retailerId:retailer,status:'choose_reference',candidates:discovery.map(r=>listed(r,retailer)),
     guidance:'Use pharmacy_search for more presentations, then pass the chosen local SKU.'};

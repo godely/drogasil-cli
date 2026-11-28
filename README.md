@@ -215,3 +215,5 @@ python3 scripts/package-plugin.py --app-id "$DROGASIL_APP_ID" --output /tmp/drog
 [Bulk catalog snapshots, scheduled delivery and spreadsheet exports](docs/catalog-snapshots.md)
 
 The medication-catalog library entry point shares medication name resolution and evidence checks with sibling retailer adapters. It uses the ingredient and brand index plus normalized denominations from the [July 2026 ANVISA DCB workbook](https://bibliotecadigital.anvisa.gov.br/jspui/bitstream/anvisa/21318/1/2-Lista%20DCB%20consolidada%20jul%202026.xlsx). Regenerate the vocabulary with `python3 scripts/build-dcb-names.py workbook.xlsx src/data/dcb-names.txt`.
+
+[Registered pack comparisons and CMED source](docs/registered-packs.md)
