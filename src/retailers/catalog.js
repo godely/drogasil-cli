@@ -1,3 +1,5 @@
+import { fold } from '../api/medications.js';
+import { prescriptionInfo } from '../api/regulatory-info.js';
 import { getMedicationInfo } from '../api/medication-info.js';
 import { collectSnapshot } from '../snapshots/index.js';
 
@@ -15,6 +17,41 @@ export function catalogType(row) {
   return row.type ?? 'Não informado';
 }
 
+function partnerPrescription(fields, prescriptionLabels, retentionLabels, ingredients, routes) {
+  const evidence = [...prescriptionLabels, ...retentionLabels];
+  const stripe = values(fields['Classificação']).map(fold);
+  if (stripe.some(s => s === 'tarja vermelha' || s === 'tarja preta')) evidence.push('venda sob prescrição');
+  for (const label of retentionLabels.map(fold)) {
+    if (label === 'sim') evidence.push('com retenção de receita');
+    if (label === 'nao') evidence.push('sem retenção de receita');
+  }
+  for (const label of prescriptionLabels.map(fold)) {
+    if (label === 'sim') evidence.push('venda sob prescrição');
+    if (label === 'nao') evidence.push('isento de prescrição');
+  }
+  const active = [...new Set(ingredients.map(s => fold(s).replace(/^com\s+/, '')))];
+  const oral = routes.length && routes.every(s => /^(?:(?:via|uso) )?(?:oral|sublingual)$/.test(fold(s)));
+  const result = prescriptionInfo('', evidence.join(' '), active, oral ? 'oral' : null);
+  const reportedLists = [...new Set(prescriptionLabels.flatMap(s =>
+    s.toUpperCase().match(/\b[ABC][123]\b/g) ?? []))];
+  if (reportedLists.length) {
+    result.reportedLists = reportedLists;
+    if (result.rule && result.form) {
+      const expected = regulatoryListsByForm.get(result.form);
+      if (expected && reportedLists.some(list => !expected.includes(list))) result.catalogFormConflict = true;
+    }
+  }
+  return result;
+}
+
+// Only compare catalog list codes when the official rule already established the form.
+const regulatoryListsByForm = new Map([
+  ['Notificação de Receita B',['B1']], ['Notificação de Receita B2',['B2']],
+  ['Notificação de Receita A',['A1','A2','A3']], ['Receita de Controle Especial',['C1']],
+  ['Notificação de Receita Especial para Retinoides de Uso Sistêmico',['C2']],
+  ['Notificação de Receita de Talidomida',['C3']],
+]);
+
 // These are catalog labels. A missing regulatory field must remain unknown.
 export function medicationCard(row) {
   const fields = row.facts ?? {};
@@ -24,13 +61,16 @@ export function medicationCard(row) {
   const packs = title.replace(/\/\s*(?:\d+(?:[.,]\d+)?\s*)?ml\b/gi, '/').match(/\b\d+(?:[.,]\d+)?\s*(?:ml|comprimidos?|c[áa]psulas?|ampolas?|sach[eê]s?)\b/giu);
   const activeIngredients = values(row.activeIngredients, fields.NomeSubstanciaPrincipioAtivo, fields['Princípio Ativo']);
   const release = title.match(/\blibera[çc][ãa]o (?:imediata|prolongada|modificada|retardada|controlada)|\b(?:XR|SR|LP|CR)\b/gi);
+  const routes = values(fields['Forma de Administração'], fields['Formas de Administração'], fields['Via de Administração']);
+  const prescriptionLabel = values(fields['Prescrição Médica'], fields['Tipo de Receita']);
+  const retentionLabel = values(fields['Retenção de Receita']);
   return { sku: row.sku, gtin: row.gtin ?? null, name: title, type: catalogType(row), source: row.productUrl ?? null,
     activeIngredients, ingredientEvidence: row.ingredientEvidence ?? (activeIngredients.length ? {source:'retailer_field'} : null),
     strengths: values(fields.Dosagem, strengths ?? []), forms: values(fields['Forma Farmacêutica'], form ?? []),
-    routes: values(fields['Forma de Administração'], fields['Formas de Administração'], fields['Via de Administração']),
+    routes,
     release: values(fields['Tipo de Liberação'], release ?? []), packs: values(fields.Quantidade, packs ?? []),
-    prescriptionLabel: values(fields['Prescrição Médica'], fields['Tipo de Receita']),
-    retentionLabel: values(fields['Retenção de Receita']), observedAt: row.observedAt ?? null };
+    prescriptionLabel, retentionLabel, prescription: partnerPrescription(fields, prescriptionLabel, retentionLabel, activeIngredients, routes),
+    observedAt: row.observedAt ?? null };
 }
 
 export async function catalogInfo({retailer, queries, page = 1, limit = 20, scope = 'catalog'}, source, nationalInfo = getMedicationInfo) {
