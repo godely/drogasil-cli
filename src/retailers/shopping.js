@@ -146,8 +146,12 @@ export async function retailerBasket({retailer, items, zipcode}, source) {
       }
     }
   }
-  const status=complete?'fulfillable':available.length?'partial':
-    quotes.every(q=>q.localStatus==='unavailable')?'unavailable':'unconfirmed';
+  const failures = quotes.filter(q => q.localStatus === 'lookup_failed').length;
+  let status = 'unconfirmed';
+  if (complete) status = 'fulfillable';
+  else if (failures && failures === quotes.length) status = 'source_failed';
+  else if (failures || available.length) status = 'partial';
+  else if (quotes.length && quotes.every(q => q.localStatus === 'unavailable')) status = 'unavailable';
   return {...base,status,
     items:quotes.map(q=>listed(q,retailer)),commonPickupPoints:[...shared.values()],
     deliveryForEveryItem:complete && quotes.every(q=>q.methods.some(m=>m.channel==='delivery')),
