@@ -1,3 +1,4 @@
+import { confirmCliNames } from './confirm-names.js';
 import { getMedicationInfo } from '../api/medication-info.js';
 import { printJson } from '../format.js';
 
@@ -8,7 +9,12 @@ const answer = value => value == null ? unknown : value ? 'sim' : 'não';
 
 export async function run(queries, values) {
   if (!queries.length) { process.stderr.write(usage + '\n'); return 1; }
-  const info = await getMedicationInfo(queries, { scope: values.brazil ? 'brazil' : 'catalog' });
+  const {names, pending} = await confirmCliNames(queries, {json:values.json});
+  if (pending) {
+    if (values.json) printJson({...pending, results:[]});
+    return 3;
+  }
+  const info = await getMedicationInfo(names, { scope: values.brazil ? 'brazil' : 'catalog' });
   if (values.json) printJson(info);
   else for (const r of info.results) {
     const lines = [r.query];

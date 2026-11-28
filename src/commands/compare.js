@@ -1,3 +1,4 @@
+import { confirmCliNames } from './confirm-names.js';
 import { compareProducts, normalizeOrigin } from '../api/compare.js';
 import { planPurchase, medicationType } from '../api/index.js';
 import { acceptExpansion, describeRange } from './stock-range.js';
@@ -14,7 +15,7 @@ export const options = {
 };
 
 export async function run(positionals, values) {
-  const query = positionals.join(' ').trim();
+  let query = positionals.join(' ').trim();
   if (!query) {
     process.stderr.write(usage + '\n');
     return 1;
@@ -36,6 +37,12 @@ export async function run(positionals, values) {
     process.stderr.write('--expand requires a location and a search across stores.\n');
     return 1;
   }
+  const {names, pending} = await confirmCliNames([query], {json:values.json});
+  if (pending) {
+    if (values.json) printJson([]);
+    return 3;
+  }
+  [query] = names;
   if (origin && !values.json) {
     const opts = { origin, store: values.store, expandSku: true, expandSearch: values.expand };
     let result = await planPurchase([query], opts);
