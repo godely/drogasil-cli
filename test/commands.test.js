@@ -9,12 +9,16 @@ after(() => {
   globalThis.fetch = realFetch;
 });
 
+const facetResponse = { results:[{ facets:{ 'filters.Marca':{Dimorf:5},
+  'details.activeIngredients.description':{Morfina:5,Prednisona:4,Prednisolona:2} } }] };
+
 /** Run the CLI with a scripted fetch; returns exit code, stdout, stderr and the request bodies sent. */
 async function run(argv, responses = []) {
   const sent = [];
   const queue = [...responses];
   globalThis.fetch = async (_url, init) => {
     sent.push(JSON.parse(init.body));
+    if (sent.at(-1).requests?.[0]?.facets) return Response.json(facetResponse);
     const next = queue.shift();
     if (next === undefined) throw new Error('unexpected request');
     if (next instanceof Error) throw next;
@@ -63,12 +67,27 @@ test('unknown options are reported as usage errors, not crashes', async () => {
 test('search: --page is one-based for the user and zero-based for Algolia', async () => {
   const r = await run(
     ['search', 'dimorf', '--page', '2', '--limit', '1'],
-    [{ results: [{ hits: [{ sku: 1, name: 'A', price: 1 }], nbHits: 5, page: 1, nbPages: 5 }] }],
+    [{ results:[{ hits:[{ sku:1, name:'Dimorf 10mg', brand:'Dimorf', price:1 }], nbHits:5, page:1, nbPages:5 }] }],
   );
   assert.equal(r.code, 0);
-  assert.equal(r.sent[0].requests[0].page, 1);
-  assert.equal(r.sent[0].requests[0].hitsPerPage, '1');
+  const request = r.sent.at(-1).requests[0];
+  assert.equal(request.page, 1);
+  assert.equal(request.hitsPerPage, '1');
   assert.match(r.stdout, /page 2 of 5 \(5 hits\)/);
+});
+
+test('search asks about both names before querying products and verifies the chosen ingredient', async () => {
+  const first = await run(['search','predniso','--json']);
+  assert.equal(first.code,3);
+  assert.ok(first.sent.every(body => body.requests[0].facets));
+  assert.equal(JSON.parse(first.stdout).question, 'Você quis dizer prednisona ou prednisolona?');
+  const chosen = await run(['search','prednisona','--json'], [{results:[{hits:[
+    {name:'Prednisona 20mg', details:{activeIngredients:[{description:'Prednisona'}]}},
+    {name:'Prednisona em destaque', details:{activeIngredients:[{description:'Prednisolona'}]}},
+    {name:'Reactine', details:{activeIngredients:[{description:'Cetirizina'}]}},
+  ], nbHits:1, nbPages:1}]}]);
+  assert.equal(chosen.code,0);
+  assert.deepEqual(JSON.parse(chosen.stdout).hits.map(hit => hit.name), ['Prednisona 20mg']);
 });
 
 test('search: non-numeric --limit and --page are rejected before any request', async () => {

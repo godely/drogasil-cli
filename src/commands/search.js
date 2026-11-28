@@ -1,4 +1,5 @@
-import { searchProducts } from '../api/index.js';
+import { searchCatalogPage } from '../api/catalog-search.js';
+import { confirmCliNames } from './confirm-names.js';
 import { medicationType } from '../api/product-info.js';
 import { printJson, table, formatPrice } from '../format.js';
 
@@ -9,7 +10,7 @@ Full-text product search. Prints SKU, name, brand and reference price.
 Options:
   --limit N   Hits per page, 1..1000 (default 20)
   --page N    Page number, starting at 1 (default 1)
-  --json      Raw Algolia result`;
+  --json      Catalog hits and pagination as JSON`;
 
 export const options = {
   limit: { type: 'string', default: '20' },
@@ -37,7 +38,12 @@ export async function run(positionals, values) {
   }
 
   // Algolia pages are zero-based; the CLI is one-based like the footer below.
-  const result = await searchProducts(query, { hitsPerPage: limit, page: page - 1 });
+  const {names, pending} = await confirmCliNames([query], {json:values.json});
+  if (pending) {
+    if (values.json) printJson({...pending, hits:[], nbHits:0, nbPages:0, page:page - 1});
+    return 3;
+  }
+  const result = await searchCatalogPage(names[0], { hitsPerPage: limit, page: page - 1 });
 
   if (values.json) {
     printJson(result);
