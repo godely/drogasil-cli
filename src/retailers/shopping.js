@@ -72,7 +72,25 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
     if (!discovery.length && referenceFailure) throw referenceFailure;
   }
   const distinct = [...new Set(discovery.map(row=>row.sku))];
-  if (!distinct.length) return {retailerId:retailer,status:exact?'unknown_sku':'no_match',products:[]};
+  if (!distinct.length) {
+    const result = {retailerId:retailer,status:exact?'unknown_sku':'no_match',products:[]};
+    if (exact || !includeGenerics || wantsDrops || !reference.compare) return result;
+    // A retailer can carry equivalent generics without selling the requested brand's pack.
+    // The reference establishes equivalence, and the retailer establishes each offer.
+    let equivalents;
+    try { equivalents = await reference.compare(query); }
+    catch { return {...result,status:'partial',issues:['reference_lookup_failed']}; }
+    const brand = equivalents.requestedBrandName;
+    if (!brand || !(fold(query)+' ').startsWith(fold(brand)+' ')) return result;
+    if (equivalents.status === 'ambiguous') return {...result, status:'choose_reference',
+      presentationChoices:(equivalents.candidates ?? []).map(p=>p.name), referenceCatalog:'drogasil'};
+    if (equivalents.status !== 'matches') return result;
+    const requested = new Set((equivalents.requestedBrandSkus ?? []).map(String));
+    const originals = equivalents.products.filter(p => requested.has(String(p.sku)));
+    if (!originals.length) return result;
+    return verifiedGenericOffers({...result,requestedBrand:{name:brand,status:'no_exact_catalog_match'}},
+      equivalents,source,new Set(originals.map(p=>String(p.eanCode))));
+  }
   if (distinct.length > 1) return {retailerId:retailer,status:'choose_reference',candidates:discovery.map(r=>listed(r,retailer)),
     guidance:'Use pharmacy_search for more presentations, then pass the chosen local SKU.'};
   const originals = exact || wantsDrops ? discovery : await source.product(distinct[0]);
@@ -90,7 +108,11 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
   } catch { return {...result,status:'partial',issues:['reference_lookup_failed']}; }
   if (equivalents.status!=='matches') return {...result,status:'incomplete_presentation',
     missingFields:equivalents.missingFields??['verified_equivalence']};
-  const checked = new Set([anchor.gtin]);
+  return verifiedGenericOffers(result, equivalents, source, new Set([anchor.gtin]));
+}
+
+async function verifiedGenericOffers(result, equivalents, source, checked) {
+  const {retailerId:retailer, products} = result;
   const generics = [], issues=[];
   for (const hit of equivalents.products) {
     const gtin=String(hit.eanCode??'');
@@ -106,7 +128,7 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
     } catch {issues.push({gtin,status:'source_failed'});}
   }
   const byPrice=(a,b)=>(a.currentPrice??Infinity)-(b.currentPrice??Infinity) || String(a.sku).localeCompare(String(b.sku));
-  return {...result,status:issues.length?'partial':'matches',issues,
+  return {...result,status:issues.length?'partial':generics.length || products.length?'matches':'no_match',issues,
     products:[...products.sort(byPrice),...generics.sort(byPrice)], scope:'equivalents_in_reference_catalog'};
 }
 
