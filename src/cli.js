@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import { HttpError, NetworkError, GraphQLError } from './api/index.js';
 
-const COMMANDS = {
+export const COMMANDS = {
   snapshot: () => import('./commands/snapshot.js'),
   info: () => import('./commands/info.js'),
   plan: () => import('./commands/plan.js'),
@@ -40,6 +40,8 @@ Environment:
 `;
 
 // Keep an HTML block page or a huge error payload from flooding the terminal.
+export const commonOptions = { json: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' } };
+
 const MAX_BODY_CHARS = 2000;
 
 /**
@@ -80,7 +82,7 @@ export async function main(argv) {
   }
 
   const load = COMMANDS[name];
-  if (!load) {
+  if (!Object.hasOwn(COMMANDS, name)) {
     process.stderr.write(`drogasil: unknown command "${name}"\n\n${USAGE}`);
     return 1;
   }
@@ -90,7 +92,7 @@ export async function main(argv) {
   try {
     parsed = parseArgs({
       args: joinNegativeNumbers(rest),
-      options: { json: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' }, ...mod.options },
+      options: { ...commonOptions, ...mod.options },
       allowPositionals: true,
     });
   } catch (err) {

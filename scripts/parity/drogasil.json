@@ -1,0 +1,249 @@
+{
+  "commands": {
+    "compare": {
+      "flags": {
+        "cep": {
+          "type": "string"
+        },
+        "expand": {
+          "type": "boolean"
+        },
+        "help": {
+          "type": "boolean",
+          "short": "h"
+        },
+        "json": {
+          "type": "boolean",
+          "default": false
+        },
+        "lat": {
+          "type": "string"
+        },
+        "lon": {
+          "type": "string"
+        },
+        "store": {
+          "type": "string"
+        }
+      }
+    },
+    "info": {
+      "flags": {
+        "brazil": {
+          "type": "boolean"
+        },
+        "help": {
+          "type": "boolean",
+          "short": "h"
+        },
+        "json": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "plan": {
+      "flags": {
+        "brand": {
+          "type": "string",
+          "multiple": true
+        },
+        "brand-only": {
+          "type": "string",
+          "multiple": true
+        },
+        "cep": {
+          "type": "string"
+        },
+        "expand": {
+          "type": "boolean"
+        },
+        "generic": {
+          "type": "string",
+          "multiple": true
+        },
+        "help": {
+          "type": "boolean",
+          "short": "h"
+        },
+        "include-generics": {
+          "type": "string",
+          "multiple": true
+        },
+        "json": {
+          "type": "boolean",
+          "default": false
+        },
+        "lat": {
+          "type": "string"
+        },
+        "lon": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "string",
+          "multiple": true
+        },
+        "sku": {
+          "type": "string",
+          "multiple": true
+        },
+        "store": {
+          "type": "string"
+        }
+      }
+    },
+    "product": {
+      "flags": {
+        "help": {
+          "type": "boolean",
+          "short": "h"
+        },
+        "json": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "search": {
+      "flags": {
+        "help": {
+          "type": "boolean",
+          "short": "h"
+        },
+        "json": {
+          "type": "boolean",
+          "default": false
+        },
+        "limit": {
+          "type": "string",
+          "default": "20"
+        },
+        "page": {
+          "type": "string",
+          "default": "1"
+        }
+      }
+    },
+    "snapshot": {
+      "flags": {
+        "format": {
+          "type": "string"
+        },
+        "help": {
+          "type": "boolean",
+          "short": "h"
+        },
+        "json": {
+          "type": "boolean",
+          "default": false
+        },
+        "limit": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "string"
+        }
+      },
+      "actions": [
+        "collect",
+        "read",
+        "export"
+      ]
+    },
+    "stock": {
+      "flags": {
+        "all": {
+          "type": "boolean",
+          "default": false
+        },
+        "cep": {
+          "type": "string"
+        },
+        "expand": {
+          "type": "boolean"
+        },
+        "help": {
+          "type": "boolean",
+          "short": "h"
+        },
+        "json": {
+          "type": "boolean",
+          "default": false
+        },
+        "lat": {
+          "type": "string"
+        },
+        "lon": {
+          "type": "string"
+        },
+        "max-branches": {
+          "type": "string"
+        },
+        "min-qty": {
+          "type": "string"
+        }
+      }
+    },
+    "stores": {
+      "flags": {
+        "help": {
+          "type": "boolean",
+          "short": "h"
+        },
+        "json": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  "tools": {
+    "get_medication_info": [
+      "queries",
+      "scope"
+    ],
+    "plan_purchase": [
+      "expandSearch",
+      "items",
+      "origin",
+      "store"
+    ],
+    "search_products": [
+      "limit",
+      "page",
+      "query"
+    ],
+    "get_products": [
+      "skus"
+    ],
+    "find_nearby_stock": [
+      "expandSearch",
+      "minimumQuantity",
+      "origin",
+      "sku",
+      "store"
+    ],
+    "compare_products": [
+      "expandSearch",
+      "includeGenerics",
+      "origin",
+      "query",
+      "store"
+    ],
+    "compare_pharmacy_prices": [
+      "includeGenerics",
+      "query",
+      "zipcode"
+    ],
+    "collect_catalog_snapshot": [
+      "maxItems",
+      "queries"
+    ],
+    "read_catalog_snapshot": [
+      "limit",
+      "offset",
+      "runId"
+    ]
+  }
+}
