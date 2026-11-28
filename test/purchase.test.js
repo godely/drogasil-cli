@@ -93,6 +93,14 @@ test('repeated SKU shares the stock snapshot and cannot be over-allocated', asyn
   assert.ok(result.plans[0].stops[0].pickups.reduce((n, p) => n + p.packs, 0) <= 2);
 });
 
+test('a literal generic SKU with an explicit preference reaches branch stock even with incomplete catalog fields', async t => {
+  const {products,calls}=fixture(t);
+  delete products[1].filters;
+  const result=await planPurchase([{query:'12',selectedSku:'12',includeGenerics:false}],{origin});
+  assert.deepEqual(calls,['12']);
+  assert.deepEqual(result.tables[0].rows.map(p=>p.sku),['12']);
+});
+
 test('fixed store keeps reported zero; unknown prices, unknown quantities and outages stay distinct', async t => {
   const { inventory, products } = fixture(t);
   const fixed = await planPurchase(['Alpha 1mg', 'Beta 1mg'], { origin, store: 'nearest' });
