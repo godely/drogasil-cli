@@ -24,11 +24,18 @@ test('a bare yes cannot choose between medications, and a later yes confirms one
 
 test('declining a single suggestion offers other terms without selecting a replacement', async () => {
   const result = await confirmCliNames(['morfi'], {
-    choicesFor, interactive:true, ask:async()=>'não', suggest:async()=>['morfi','Morfina','outro'],
+    choicesFor, interactive:true, ask:async()=>'não', suggest:async()=>['morfi','Morfina','morfina 10mg','morfina gotas','outro'],
     write:()=>{},
   });
   assert.deepEqual(result.pending.alternatives,['outro']);
   assert.equal(result.names,undefined);
+});
+
+test('a declined dose rejects other presentations of that name and keeps distinct documented terms', async () => {
+  const {alternativeNames} = await import('../src/api/medication-catalog.js');
+  const terms = ['loratadina','loratadina comprimidos','loratadina 5 mg','desloratadina','Desloratadina'];
+  assert.deepEqual(alternativeNames(terms,'loratadnia 10 mg',['loratadina 10 mg']),['desloratadina']);
+  assert.deepEqual(alternativeNames(terms.slice(0,3),'loratadnia',['loratadina']),[]);
 });
 
 test('explicit codes and free text remain unchanged without a prompt', async () => {

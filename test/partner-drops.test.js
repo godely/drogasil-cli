@@ -29,6 +29,22 @@ test('wrong pack, concentration, route, bundle, tablet or identity cannot supply
   }
 });
 
+test('GTS selects the documented drops even if the partner omits that brand qualifier',async()=>{
+  const title='Marca GTS 10mg/ml Solução Gotas 60ml';
+  const args={...query,query:'Marca GTS'};
+  const source={byGtin:async()=>[row],search:async()=>[]};
+  const lookup=label=>retailerComparison(args,source,{drops:async q=>{
+    assert.equal(q,args.query);
+    return {status:'matches',requestedBrandSkus:['1'],products:[{...hit,name:label}]};
+  }});
+  const product=(await lookup(title)).products[0];
+  assert.equal(product.requestedReferenceTitle,title);
+  assert.equal(product.sku,row.sku);
+  assert.deepEqual((await lookup('Marca GTS 10mg/ml Solução Oral 60ml')).products,[]);
+  const undocumented={...row,name:'Marca GTS',itemName:'Marca GTS'};
+  assert.deepEqual((await retailerComparison(args,{search:async()=>[undocumented]},{})).products,[]);
+});
+
 test('a failed identity service preserves an explicit partner listing and cannot turn failure into zero stock',async()=>{
   const reference={drops:async()=>{throw new Error('reference offline');}};
   const local={...row,name:'Marca gotas 60ml',itemName:'Marca gotas 60ml'};

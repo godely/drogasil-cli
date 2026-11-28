@@ -1,5 +1,5 @@
 import { fold, resolveMedication } from '../api/medications.js';
-import { matchesLabeledDropRequest } from '../api/presentation-label.js';
+import { documentedDrops, matchesLabeledDropRequest, requestsDrops } from '../api/presentation-label.js';
 import { matchesDropListing } from './drop-listing.js';
 import { countedOffers } from './counted-offers.js';
 import { compareProducts, medicationType, samePack, searchProducts } from '../api/index.js';
@@ -28,6 +28,7 @@ async function findDropOffers(retailer,query,source,reference,includeGenerics) {
   if (!eligible?.length) return null;
   const offers = new Map();
   for (const hit of eligible) {
+    if (/\bgts\b/iu.test(query) && !documentedDrops(hit)) continue;
     const original = allowed.has(String(hit.sku)) || selection.status === 'ambiguous';
     if (!original && (!includeGenerics || medicationType(hit)!=='Genérico')) continue;
     const code = String(hit.eanCode);
@@ -36,7 +37,7 @@ async function findDropOffers(retailer,query,source,reference,includeGenerics) {
       if (!matchesDropListing(hit,row)) continue;
       const key = JSON.stringify([row.sku,row.sellerId]);
       offers.set(key,{...listed(row,retailer),role:original?'requested':'generic',
-        ...(original && {requestedTradeName:hit.brand}),matchBasis:'verified_drop_presentation_and_barcode'});
+        ...(original && {requestedTradeName:hit.brand, requestedReferenceTitle:hit.name}),matchBasis:'verified_drop_presentation_and_barcode'});
     }
   }
   const products = [...offers.values()];
@@ -50,7 +51,7 @@ async function findDropOffers(retailer,query,source,reference,includeGenerics) {
 // must independently list every suggested generic with the same barcode and pack.
 export async function retailerComparison({retailer, query, includeGenerics}, source, reference = references) {
   const exact = /^\d+$/.test(query);
-  const wantsDrops = /\bgotas?\b/iu.test(query);
+  const wantsDrops = requestsDrops(query);
   let referenceFailure;
   if (wantsDrops && reference.drops && source.byGtin) {
     try {
