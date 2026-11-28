@@ -37,3 +37,19 @@ test('national answers retain leaflet sources, release and strength filters', as
   assert.equal(prescriptionInfo('COM RETENCAO DA RECEITA', 'Venda sem prescrição', [], null).conflict, true);
   assert.equal(prescriptionInfo('', '', ['Isotretinoína'], 'Tópico').form, null);
 });
+
+test('one failed catalog request preserves the other factual answers and missing slots', async t => {
+  const {infoExitCode, renderInfoResult} = await import('../src/commands/info-result.js');
+  t.mock.method(globalThis, 'fetch', async (_, {body}) => {
+    const id = JSON.parse(body).requests[0].objectID;
+    if (id === '11') return Response.json({error:'temporarily offline'});
+    if (id === '12') return Response.json({results:[null]});
+    return Response.json({results:[{sku:id, name:'Produto de teste', details:{quantidade:'20 comprimidos'}}]});
+  });
+  const {results} = await getMedicationInfo(['11','12','13']);
+  assert.deepEqual(results.map(r => r.status), ['source_failed','no_reference','matches']);
+  assert.equal(infoExitCode(results), 2);
+  assert.match(renderInfoResult(results[0],'Drogasil'), /Falha ao consultar/);
+  assert.match(renderInfoResult(results[1],'Drogasil'), /Nenhuma apresentação/);
+  assert.match(renderInfoResult(results[2],'Drogasil'), /Embalagem: 20 comprimidos/);
+});

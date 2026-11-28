@@ -103,7 +103,16 @@ export async function infoRecords(query) {
 }
 
 async function lookup(query, scope) {
-  const {name, hits} = await infoRecords(query);
+  let records;
+  try {
+    records = await infoRecords(query);
+  } catch {
+    // A failed catalog lookup says nothing about another item in the same request.
+    const result = {query, status:'source_failed', products:[]};
+    if (scope === 'brazil' && !/^\d+$/.test(query)) result.brazil = await brazilianPresentations(query);
+    return result;
+  }
+  const {name, hits} = records;
   if (name.status === 'ambiguous') return { query, ...name, products: [] };
   const products = [...new Map(hits.map(p => [String(p.sku), medicationFacts(p)])).values()];
   const brazil = scope === 'brazil' ? await brazilianPresentations(query, name, hits[0]) : undefined;

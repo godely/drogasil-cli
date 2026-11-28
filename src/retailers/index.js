@@ -8,3 +8,4 @@ export { brandPacks, searchBrandPage, withBrandPacks } from './presentation-sear
 export { planFromInventory, tableLabel } from '../api/purchase.js';
 export { renderPurchase, purchaseExitCode } from '../commands/plan.js';
 export { acceptExpansion } from '../commands/stock-range.js';
+export { infoExitCode, renderInfoResult } from '../commands/info-result.js';

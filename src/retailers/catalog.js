@@ -113,8 +113,9 @@ async function dropCards(query, source, referenceRecords) {
 export async function catalogInfo({retailer, queries, page = 1, limit = 20, scope = 'catalog'}, source, nationalInfo = getMedicationInfo, referenceRecords = infoRecords) {
   const results = [];
   for (const query of queries) {
+    const bySku = /^\d+$/.test(query);
+    let result;
     try {
-      const bySku = /^\d+$/.test(query);
       let products, issues = [];
       if (requestsDrops(query) && source.facts && source.factsByGtin) {
         const found = await dropCards(query, source, referenceRecords);
@@ -132,20 +133,25 @@ export async function catalogInfo({retailer, queries, page = 1, limit = 20, scop
       }
       const status = issues.length ? (products.length ? 'partial' : 'source_failed') :
         products.length ? 'matches' : bySku ? 'unknown_sku' : 'no_match';
-      const result = {query, status, products, ...(issues.length && {issues})};
-      // A partner SKU must be resolved in its own catalog before national lookup.
-      const lookup = bySku ? products[0]?.name : query;
-      if (scope === 'brazil' && lookup) {
-        try {
-          const national = await nationalInfo([lookup], {scope});
-          result.brazil = national.results[0]?.brazil ?? null;
-        } catch {
-          result.brazil = null;
+      result = {query, status, products, ...(issues.length && {issues})};
+    } catch {
+      result = {query, status:'source_failed', products:[]};
+    }
+    // National presentations by name can still be checked during a retailer outage.
+    // A local code requires the name from this very retailer.
+    const lookup = bySku ? result.products[0]?.name : query;
+    if (scope === 'brazil' && lookup) {
+      try {
+        const national = (await nationalInfo([lookup], {scope})).results[0];
+        result.brazil = national?.brazil ?? null;
+        if (result.brazil?.lookupFailed || (!result.brazil && national?.status === 'source_failed'))
           result.nationalStatus = 'source_failed';
-        }
+      } catch {
+        result.brazil = null;
+        result.nationalStatus = 'source_failed';
       }
-      results.push(result);
-    } catch { results.push({query, status:'source_failed', products:[]}); }
+    }
+    results.push(result);
   }
   return {retailerId:retailer, scope:'retailer_catalog', page, limitPerQuery:limit, results};
 }

@@ -48,3 +48,23 @@ test('a failed manufacturer cross-check preserves independent local facts as par
   assert.equal(result.results[0].status,'partial');
   assert.equal(result.results[0].products.length,1);
 });
+
+test('national evidence and retailer facts survive independent source failures', async () => {
+  const {infoExitCode, renderInfoResult} = await import('../src/commands/info-result.js');
+  const source = {facts:async query => {
+    if (query === 'Primeiro') throw Error('retailer unavailable');
+    return [{sku:'10',name:query}];
+  }};
+  const data = await catalogInfo({retailer:'partner', queries:['Primeiro','Segundo'], scope:'brazil'}, source, async ([term]) => ({
+    results:[{brazil:term === 'Primeiro'
+      ? {presentations:[{name:'Apresentação nacional',source:'https://example.test/bula'}]}
+      : {presentations:[],lookupFailed:true}}]
+  }));
+  const [first, second] = data.results;
+  assert.equal(first.status,'source_failed');
+  assert.match(renderInfoResult(first,'Rede'),/Apresentação nacional/);
+  assert.equal(second.status,'matches');
+  assert.equal(second.nationalStatus,'source_failed');
+  assert.equal(infoExitCode([second]),2);
+  assert.match(renderInfoResult(second,'Rede'),/Falha ao consultar as apresentações nacionais/);
+});
