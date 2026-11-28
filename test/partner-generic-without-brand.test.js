@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {retailerComparison} from '../src/retailers/shopping.js';
+import {purchaseCatalogNotice} from '../src/commands/plan.js';
 
 const requested={name:'Exemplo 2 mg 30 comprimidos',sku:'1',eanCode:'7899547543766'};
 const generic={name:'Substância 2 mg 30 comprimidos Genérico',sku:'2',eanCode:'7896004703398'};
@@ -30,6 +31,25 @@ test('brand-only, ambiguous and unrelated names cannot silently substitute gener
   const ambiguous=await retailerComparison(options,source([]),{compare:async()=>({...match,status:'ambiguous',candidates:[requested]})});
   assert.equal(ambiguous.status,'choose_reference');
   assert.deepEqual(ambiguous.products,[]);
+  assert.deepEqual(ambiguous.presentationChoices,[requested.name]);
   const wrong=await retailerComparison(options,source([]),{compare:async()=>({...match,requestedBrandName:'Outra'})});
   assert.equal(wrong.status,'no_match');
+});
+
+test('reference-only presentations use distinct product names and carry no local price or offer', async () => {
+  const names = ['Exemplo 2 mg 30 comprimidos', 'Exemplo XR 2 mg 30 comprimidos'];
+  const compare = async () => ({...match,status:'ambiguous',
+    candidates:[...names, names[0], ' '].map(name => ({name,sku:'123',price:20}))});
+  const result = await retailerComparison(options,source([]),{compare});
+  assert.deepEqual(result.presentationChoices,names);
+  assert.equal(result.referenceCatalog,'drogasil');
+  assert.deepEqual(result.products,[]);
+  for (const status of ['choose_reference','ambiguous']) {
+    const notice = purchaseCatalogNotice({...result,status});
+    for (const name of names) assert.ok(notice.includes('• '+name));
+    assert.match(notice,/catálogo de referência da Drogasil/);
+    assert.doesNotMatch(notice,/R\$|123/);
+  }
+  const unnamed = await retailerComparison(options,source([]),{compare:async () => ({...match,status:'ambiguous',candidates:[]})});
+  assert.equal(unnamed.status,'incomplete_presentation');
 });

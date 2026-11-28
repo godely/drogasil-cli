@@ -86,8 +86,12 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
     catch { return {...result,status:'partial',issues:['reference_lookup_failed']}; }
     const brand = equivalents.requestedBrandName;
     if (!brand || !(fold(query)+' ').startsWith(fold(brand)+' ')) return result;
-    if (equivalents.status === 'ambiguous') return {...result, status:'choose_reference',
-      presentationChoices:(equivalents.candidates ?? []).map(p=>p.name), referenceCatalog:'drogasil'};
+    if (equivalents.status === 'ambiguous') {
+      const names = (equivalents.candidates ?? []).map(p => p.name?.trim()).filter(Boolean);
+      const presentationChoices = [...new Set(names)];
+      if (!presentationChoices.length) return {...result, status:'incomplete_presentation', missingFields:['reference_presentations']};
+      return {...result, status:'choose_reference', presentationChoices, referenceCatalog:'drogasil'};
+    }
     if (equivalents.status !== 'matches') return result;
     const requested = new Set((equivalents.requestedBrandSkus ?? []).map(String));
     const originals = equivalents.products.filter(p => requested.has(String(p.sku)));

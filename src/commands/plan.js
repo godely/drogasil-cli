@@ -25,6 +25,10 @@ const catalogNotes = {
 };
 
 export function purchaseCatalogNotice(table) {
+  if (['choose_reference', 'ambiguous'].includes(table.status) && table.referenceCatalog === 'drogasil' && table.presentationChoices?.length) {
+    return ['Qual destas apresentações você procura?', ...table.presentationChoices.map(name => '• ' + name),
+      'As apresentações vêm do catálogo de referência da Drogasil. A disponibilidade na farmácia escolhida depende de qual você procura.'].join('\n');
+  }
   if (table.status === 'choose_manufacturer' && table.brands?.length) return 'Qual fabricante você prefere? ' + table.brands.join(' ou ') + '?';
   return catalogNotes[table.status];
 }
