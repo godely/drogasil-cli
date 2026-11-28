@@ -8,6 +8,30 @@ const tokens = value => clean(value).match(/\d+(?:\.\d+)?\s*(?:mcg|mg|ml|ui|g|%)
 const contains = (list, part) => part.length > 0 && list.some((_,i) => part.every((word,j)=>list[i+j]===word));
 const unitDose = word => /^\d+(?:\.\d+)?(?:mg|mcg|g|ui|%)(?:\/|$)/.test(word);
 
+// Suggestions often repeat a declined name with a different strength or form.
+// Compare complete words so a rejection of loratadina still permits desloratadina.
+export function alternativeNames(terms, query, declined, limit = 7) {
+  const rejected = declined.map(term => {
+    const words = tokens(term);
+    const presentation = words.findIndex(word => /^\d/.test(word) ||
+      /^(?:gotas?|comprimidos?|capsulas?|solucao|suspensao|xarope|frascos?|ampolas?|pomada|creme|sublingual|injetavel|xr|sr)$/.test(word));
+    const name = presentation > 0 ? words.slice(0, presentation) : words;
+    if (presentation > 0 && ['em','de','com'].includes(name.at(-1))) name.pop();
+    return name;
+  });
+  const seen = new Set([tokens(query).join(' ')]);
+  const alternatives = [];
+  for (const term of terms) {
+    const words = tokens(term);
+    const key = words.join(' ');
+    if (!key || seen.has(key) || rejected.some(name => contains(words, name))) continue;
+    seen.add(key);
+    alternatives.push(term);
+    if (alternatives.length === limit) break;
+  }
+  return alternatives;
+}
+
 export async function medicationIntent(input, getIndex = medicationIndex) {
   const query = clean(input);
   if (!query || /^\d+$/.test(query)) return {kind:'text', name:query, suffix:'', suggestions:[]};

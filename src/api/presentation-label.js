@@ -25,6 +25,10 @@ export function dropSearchTerms(query) {
   return query.replace(/\bgotas\b/giu, ' ').replace(/\s+/g, ' ').trim();
 }
 
+export function requestsDrops(query) {
+  return /\b(?:gotas?|gts)\b/iu.test(query);
+}
+
 export function documentedDrops(product) {
   const label = normalize([product.name, product.filters?.['Forma farmacêutica']].join(' '));
   if (/\b(?:injet[a-z]*|ampolas?|comprimidos?|capsulas?)\b/.test(label)) return false;
@@ -55,7 +59,8 @@ export function matchesLabeledDropRequest(row,query) {
   const asProduct = name => ({name,filters:{'Forma farmacêutica':form,'Via de administração':route}});
   if (/\b(?:kit|brinde|gratis|injet[a-z]*|ampolas?|comprimidos?|capsulas?)\b/.test(normalize([row.name, row.itemName, form].join(' ')))) return false;
   const requested = catalogQuery(query);
-  return [row.name,row.itemName ?? row.name].every(name => matchesRequest(asProduct(name),requested));
+  return [row.name,row.itemName ?? row.name].every(name => matchesRequest(asProduct(name),requested) &&
+    (!/\bgts\b/iu.test(query) || documentedDrops(asProduct(name))));
 }
 
 export function labelDescription(product) {

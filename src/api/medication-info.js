@@ -2,7 +2,7 @@ import { getProductsBySku, searchProducts } from './algolia.js';
 import { resolveMedication, fold } from './medications.js';
 import { medicationType } from './product-info.js';
 import { brazilianPresentations, prescriptionInfo } from './regulatory-info.js';
-import { catalogQuery, documentedDrops, dropSearchTerms, labelDescription, matchesRequest } from './presentation-label.js';
+import { catalogQuery, documentedDrops, dropSearchTerms, labelDescription, matchesRequest, requestsDrops } from './presentation-label.js';
 
 const attributes = ['eanCode', 'sku', 'name', 'url', 'isActive', 'brand', 'details', 'filters.Forma farmacêutica',
   'filters.Via de administração', 'filters.Marca', 'filters.Tipo de medicamento', 'filters.Medicamentos genéricos',
@@ -65,7 +65,7 @@ export async function infoRecords(query) {
   if (name.kind === 'sku') hits = (await getProductsBySku([query], attributes)).filter(Boolean);
   else {
     const opts = { filters: name.filters ?? 'categories.id=532', hitsPerPage: 100, attributes };
-    const drops = /\bgotas\b/i.test(query);
+    const drops = requestsDrops(query);
     const requested = catalogQuery(name.suffix);
     const term = drops ? (name.filters ? '' : dropSearchTerms(requested)) : name.suffix;
     const first = await searchProducts(term, opts);
@@ -86,7 +86,7 @@ export async function infoRecords(query) {
       hits = hits.filter(p => terms.every(term => fold(p.name).split(/[^\p{L}\d.,/]+/u).includes(term)));
     }
   }
-  if (name.suffix && name.filters && !/\bgotas\b/i.test(query)) {
+  if (name.suffix && name.filters && !requestsDrops(query)) {
     const doses = text => [...fold(text).matchAll(/\b(\d+(?:[.,]\d+)?)\s*(mg|mcg|g|ml|ui)\b/g)]
       .map(m => Number(m[1].replace(',', '.')) + m[2]);
     const requested = doses(name.suffix);

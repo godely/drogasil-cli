@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline/promises';
-import { medicationIntent, nameChoices, namePrompt } from '../api/medication-catalog.js';
+import { alternativeNames, medicationIntent, nameChoices, namePrompt } from '../api/medication-catalog.js';
 import { fold } from '../api/medications.js';
 
 // JSON and piped commands must never wait for stdin. Human prompts go to
@@ -32,8 +32,7 @@ export async function confirmCliNames(queries, {
       for (;;) {
         const reply = fold(await ask(question + options + ' ')).trim();
         if (!reply || reply === 'nao') {
-          const excluded = new Set([query, ...choices].map(fold));
-          const alternatives = (await suggest(query, 50)).filter(term => !excluded.has(fold(term))).slice(0, 7);
+          const alternatives = alternativeNames(await suggest(query, 50), query, choices);
           if (alternatives.length) write('Outras sugestões: ' + alternatives.join(', '));
           else write('Pode escrever o nome de outra forma?');
           return {pending:{...pending, alternatives}};

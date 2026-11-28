@@ -1,5 +1,5 @@
 import { prescriptionInfo } from '../api/regulatory-info.js';
-import { matchesLabeledDropRequest } from '../api/presentation-label.js';
+import { documentedDrops, matchesLabeledDropRequest, requestsDrops } from '../api/presentation-label.js';
 import { validBarcode } from '../api/retail-prices.js';
 import { matchesDropListing } from './drop-listing.js';
 import { getMedicationInfo, infoRecords, medicationFacts } from '../api/medication-info.js';
@@ -81,6 +81,7 @@ async function dropCards(query, source, referenceRecords) {
   try {
     const { hits } = await referenceRecords(query);
     for (const hit of hits) {
+      if (/\bgts\b/iu.test(query) && !documentedDrops(hit)) continue;
       const code = String(hit.eanCode ?? '');
       if (!validBarcode(code)) continue;
       const fact = medicationFacts(hit);
@@ -110,7 +111,7 @@ export async function catalogInfo({retailer, queries, page = 1, limit = 20, scop
     try {
       const bySku = /^\d+$/.test(query);
       let products, issues = [];
-      if (/\bgotas\b/i.test(query) && source.facts && source.factsByGtin) {
+      if (requestsDrops(query) && source.facts && source.factsByGtin) {
         const found = await dropCards(query, source, referenceRecords);
         products = found.cards.slice((page-1)*limit, page*limit);
         issues = found.issues;
