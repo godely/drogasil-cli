@@ -28,7 +28,7 @@ export function matchesCountedLabel(request, name, fields = {}) {
   const title = normalized(name), pack = normalized(fields.pack), form = normalized(fields.form);
   const route = normalized(fields.route);
   const evidence = [title, pack, form, normalized(fields.brand)].join(' ');
-  if (route && route !== 'oral') return false;
+  if (route && !/^(?:(?:uso|via)\s+)?oral$/.test(route)) return false;
   // A modifier, a combination pack or a second strength needs clarification.
   if (/\b(?:xr|xl|sr|cr|er|dr|la|lp|mr|retard|chrono|depot|kit|brinde|gratis|liberacao|dispers\w*|orodispers\w*|sublingu\w*|mastig\w*|efervesc\w*|gastrorresist\w*|enteric\w*|vagin\w*|retal|nasal|topico|oftalm\w*|bucal|bicamada|leve\s+\d+)\b|[+/×]|\d\s*x\s*\d/.test(evidence)) return false;
   if (form && !new RegExp('^' + request.form + 's?(?: revestid[oa]s?| duras?| moles?)?$').test(form)) return false;

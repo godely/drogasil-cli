@@ -9,6 +9,12 @@ test('direct named packs require independent strength and ingredient evidence', 
   const requested = countedPack('2,5 mg caixa com 20 comprimidos');
   const matches = p => directCountedListing(p, 'Exemplo', requested);
   assert.ok(matches(product));
+  for (const route of ['Uso oral', 'Via oral', 'Oral']) {
+    assert.ok(matches({...product, filters:{'Via de administração':route}}), route);
+  }
+  for (const route of ['Uso sublingual','Tópico e oral','Uso oral ou vaginal']) {
+    assert.equal(matches({...product, filters:{'Via de administração':route}}), false, route);
+  }
   assert.equal(countedPack('2,5 mg'), null);
   assert.equal(countedPack('2 mg/mL 20 mL'), null);
   for (const name of ['A 2,5 mg 10 comprimidos', 'A 2,5 mg 20 cápsulas', 'A XR 2,5 mg 20 comprimidos',
