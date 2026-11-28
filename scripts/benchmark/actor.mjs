@@ -14,8 +14,26 @@ function request(input) {
   const {searchQueries=['paracetamol'],maxItems=20} = input;
   if (!Array.isArray(searchQueries) || searchQueries.length < 1 || searchQueries.length > 10 ||
       searchQueries.some(q=>typeof q !== 'string' || !q.trim() || q.trim().length > 150) ||
-      !Number.isInteger(maxItems) || maxItems < 1 || maxItems > 1000) throw Error('Invalid snapshot input');
+      !Number.isInteger(maxItems) || maxItems < 1 || maxItems > 1000) throw new RangeError('Invalid snapshot input');
   return {searchQueries:[...new Set(searchQueries.map(q=>q.trim()))],maxItems};
+}
+
+// An actual Actor run can be inspected even if the local collector would reject its terms.
+function inputEvidence(input) {
+  if (input == null) return {input:null, queryInput:'unavailable', locallySupported:null};
+  let normalized;
+  try { normalized=request(input); }
+  catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    normalized=null;
+  }
+  const terms=input.searchQueries;
+  let queryInput='supplied';
+  if (!Object.hasOwn(input,'searchQueries')) queryInput='omitted';
+  else if (!Array.isArray(terms)) queryInput='invalid_type';
+  else if (!terms.length) queryInput='empty_array';
+  else if (terms.some(term=>typeof term==='string' && !term.trim())) queryInput='contains_blank';
+  return {input:normalized,queryInput,locallySupported:normalized!==null};
 }
 
 async function local(input) {
@@ -56,7 +74,7 @@ export async function actorRun(id,read=get) {
     if (!Array.isArray(page) || !page.length || page.length > limit) throw Error('Incomplete dataset read');
     records.push(...page);
   }
-  return {source:'apify-run',input:input === null ? null : request(input),status:run.status,build:run.buildNumber,
+  return {source:'apify-run',...inputEvidence(input),status:run.status,build:run.buildNumber,
     startedAt:run.startedAt,finishedAt:run.finishedAt,records,work,
     chargedEventCounts:run.chargedEventCounts ?? null,usageTotalUsd:run.usageTotalUsd ?? null};
 }
@@ -154,7 +172,8 @@ export function compare(localDataset,actorDataset) {
     rowsPerSecond:time?.elapsedMs > 0 ? run.records.length*1000/time.elapsedMs : null,
     fieldCoverage:fieldCoverage(run.records),work:run.work ?? null});
   return {paired,sameInput:sameInput ?? null,windowsOverlap:overlap,local:summarize(local,a,aTime),
-    actor:{...summarize(actor,b,bTime),build:actor.build ?? null,chargedEventCounts:actor.chargedEventCounts ?? null,
+    actor:{...summarize(actor,b,bTime),queryInput:actor.queryInput ?? null,locallySupported:actor.locallySupported ?? null,
+      build:actor.build ?? null,chargedEventCounts:actor.chargedEventCounts ?? null,
       usageTotalUsd:actor.usageTotalUsd ?? null},shared:shared.length,compared:comparable.length,
     observationGapsMs:{datedPairs:timeGapsMs.length,minimum:timeGapsMs[0] ?? null,maximum:timeGapsMs.at(-1) ?? null},
     onlyLocal:[...a.products.keys()].filter(id=>!b.products.has(id)),onlyActor:[...b.products.keys()].filter(id=>!a.products.has(id)),

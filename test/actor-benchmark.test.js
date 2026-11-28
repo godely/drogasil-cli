@@ -89,6 +89,22 @@ test('reads an existing Actor run in bounded pages and retains its observed even
   assert.deepEqual(result.work,{searchPages:3});
   assert.equal(result.chargedEventCounts['item-extracted'],115);
   assert.equal(result.usageTotalUsd,0.23);
+  for (const [submitted,form,supported] of [
+    [{maxItems:115},'omitted',true], [{searchQueries:[]},'empty_array',false],
+    [{searchQueries:['  ']},'contains_blank',false], [{searchQueries:'A'},'invalid_type',false],
+    [null,'unavailable',null],
+  ]) {
+    const loaded=await actorRun('run1',path=>path.endsWith('/records/INPUT') ? submitted : read(path));
+    assert.equal(loaded.queryInput,form);
+    assert.equal(loaded.locallySupported,supported);
+    assert.deepEqual(loaded.records,records);
+    const report=compare(local,loaded);
+    assert.equal(report.actor.queryInput,form);
+    assert.equal(report.actor.usageTotalUsd,0.23);
+    assert.equal(report.paired,false);
+    if (!supported) assert.equal(report.sameInput,null);
+  }
+  await assert.rejects(actorRun('run1',p=>p.endsWith('/records/INPUT')?{unexpectedField:'x'}:read(p)),/Unexpected Actor input/);
   await assert.rejects(actorRun('run1',p=>p.includes('offset=100')?[]:read(p)),/Incomplete dataset read/);
   await assert.rejects(actorRun('run1',p=>p==='actor-runs/run1'?{data:{actId:'other'}}:read(p)),/different Actor/);
   await assert.rejects(actorRun('run1',p=>p==='actor-runs/run1'?{data:{actId:'actor1',status:'RUNNING'}}:read(p)),/still active/);
