@@ -27,14 +27,14 @@ export async function searchProducts(query, opts = {}) {
   if (opts.page != null) request.page = opts.page;
   if (opts.filters) request.filters = opts.filters;
 
-  return runQuery(request);
+  return runQuery(request, opts.onResponseBytes);
 }
 
-async function runQuery(request) {
+async function runQuery(request, onResponseBytes) {
   const json = await postJson(
     `${BASE}/queries?category=web_search_sponsored_products`,
     { requests: [request] },
-    ALGOLIA_HEADERS,
+    ALGOLIA_HEADERS, onResponseBytes,
   );
   const result = json?.results?.[0];
   if (!result || (!request.facets && !Array.isArray(result.hits) && !result.error && !result.message)) throw new Error('Unexpected catalog search response');

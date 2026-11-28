@@ -140,3 +140,67 @@ print(json.dumps([record['seller'],record['currentPrice'],record['stockSignal'],
   assert.equal(old.records[1].inStock, null);
   assert.equal(old.records[1].offers.length, 2);
 });
+
+test('transient failures retry the same operation, retain first-query attribution and count observed bytes', async t => {
+  const {HttpError, NetworkError} = await import('../src/api/http.js');
+  const directory = await mkdtemp(path.join(tmpdir(),'snapshot-retry-'));
+  const previous = process.env.DROGASIL_SNAPSHOT_DB;
+  process.env.DROGASIL_SNAPSHOT_DB = path.join(directory,'runs.sqlite');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DROGASIL_SNAPSHOT_DB;
+    else process.env.DROGASIL_SNAPSHOT_DB = previous;
+    await rm(directory,{recursive:true,force:true});
+  });
+  const delays = [];
+  const reads = [];
+  let searches = 0;
+  const result = await collectSnapshot(['first','second'],{},{
+    sleep:async ms => delays.push(ms),
+    search:async (term,{onResponseBytes}) => {
+      onResponseBytes(10);
+      if (++searches === 1) {
+        const error = new HttpError(429,'https://example.test',null);
+        error.retryAfter = '2';
+        throw error;
+      }
+      return {nbPages:1, hits:term === 'first' ?
+        [{sku:'1'}, {sku:'2',type:'Serviço'}, {sku:null}] : [{sku:'1'}, {sku:'3'}]};
+    },
+    read:async ({sku}, query, onBytes) => {
+      reads.push(sku);
+      if (reads.length === 1) throw new NetworkError('example',new Error('timeout'),100);
+      if (reads.length === 2) throw new HttpError(503,'example',null);
+      onBytes(5); return {snapshot:{sku,searchQuery:query},html:'abcde'};
+    },
+  });
+  assert.equal(result.state,'succeeded');
+  assert.deepEqual(reads,['1','1','1','3']);
+  assert.deepEqual(delays,[2000,750,1500]);
+  assert.deepEqual(result.records.map(r => [r.sku,r.searchQuery]),[['1','first'],['3','second']]);
+  assert.deepEqual(result.stats,{searchPages:2,searchRequests:3,rowsScanned:5,productRequests:4,productPageBytes:10,
+    observedResponses:5,responseBodyBytes:40,retries:3,skippedServices:1,skippedDuplicates:1,invalidSkus:1,uniqueProducts:2});
+});
+
+test('permanent errors and long rate limits stop immediately; exhausted transient retries keep earlier records', async t => {
+  const {HttpError} = await import('../src/api/http.js');
+  const directory = await mkdtemp(path.join(tmpdir(),'snapshot-stop-'));
+  const previous = process.env.DROGASIL_SNAPSHOT_DB;
+  process.env.DROGASIL_SNAPSHOT_DB = path.join(directory,'runs.sqlite');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DROGASIL_SNAPSHOT_DB;
+    else process.env.DROGASIL_SNAPSHOT_DB = previous;
+    await rm(directory,{recursive:true,force:true});
+  });
+  for (const [status, retryAfter, retries] of [[403,null,0],[401,null,0],[404,null,0],[429,'60',0],[503,null,2],[200,null,0]]) {
+    const error = new HttpError(status,'example',null);
+    error.retryAfter = retryAfter;
+    const result = await collectSnapshot(['one'],{},{
+      sleep:async () => {}, search:async () => ({nbPages:1,hits:[{sku:'1'},{sku:'2'}]}),
+      read:async hit => { if (hit.sku === '2') throw error; return {snapshot:hit}; },
+    });
+    assert.equal(result.state,'failed');
+    assert.deepEqual(result.records,[{sku:'1'}]);
+    assert.equal(result.stats.retries,retries);
+    assert.equal(result.stats.productRequests,2+retries);
+  }
+});
