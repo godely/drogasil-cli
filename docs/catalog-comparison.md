@@ -40,6 +40,8 @@ node scripts/benchmark/actor.mjs read-actor "$APIFY_RUN_ID" > "$BENCH_DIR/actor.
 node scripts/benchmark/actor.mjs compare "$BENCH_DIR/local.json" "$BENCH_DIR/actor.json" > "$BENCH_DIR/report.json"
 ```
 
+The same `compare` command accepts a full CLI JSON export and the Actor's downloaded JSON dataset directly, in that order. Each product's `observations` entry includes both timestamps, their signed difference in milliseconds and the values of each changed field. Files without run metadata can establish product overlap and field agreement. They leave billing, run timing and input equivalence unknown. Use a complete Drogasil dataset on each side. Partial pages and records from other retailers are rejected.
+
 `paired` requires two successful runs from the expected sources, matching normalized inputs and overlapping collection windows. The timestamp gap for the closest and farthest paired observations shows how closely the shared products were checked. Read the row counts and per-field differences independently. The report lists products unique to each source, duplicates, first-query disagreements and changed fields for each shared product. Duplicate or invalid identifiers are excluded from field comparisons. Field coverage is also counted across each full dataset. An explicit zero is a value, an explicit null is counted separately, and an omitted field is counted as missing. Reported work counters, elapsed time and actual billed events stay separate. An inaccessible charge remains unknown.
 
 ## Reproduction

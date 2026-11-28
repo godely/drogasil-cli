@@ -65,6 +65,7 @@ function index(rows) {
   const products=new Map(),duplicates=new Set();
   let invalid=0;
   for (const row of rows) {
+    if (row?.retailerId && row.retailerId !== 'drogasil') throw Error('Expected only Drogasil records');
     if (typeof row?.sku !== 'string' || !/^\d+$/.test(row.sku)) { invalid++; continue; }
     if (products.has(row.sku)) duplicates.add(row.sku);
     else products.set(row.sku,row);
@@ -77,8 +78,24 @@ function timing(run) {
   return Number.isFinite(start) && Number.isFinite(end) && end>=start ? {start,end,elapsedMs:end-start} : null;
 }
 
-export function compare(local,actor) {
-  if (!Array.isArray(local.records) || !Array.isArray(actor.records)) throw Error('Expected complete record arrays');
+function snapshotInput(data) {
+  if (Array.isArray(data)) return {records:data};
+  if (data && Number.isSafeInteger(data.count) && (data.offset !== 0 || data.nextOffset != null ||
+      data.state === 'running' || data.records?.length !== data.count)) {
+    throw Error('Export the complete dataset before comparing a paginated snapshot');
+  }
+  return data;
+}
+
+function observation(row, field) {
+  if (!Object.hasOwn(row,field)) return {state:'absent'};
+  if (row[field] === null) return {state:'null'};
+  return {state:'reported',value:row[field]};
+}
+
+export function compare(localDataset,actorDataset) {
+  const local = snapshotInput(localDataset), actor = snapshotInput(actorDataset);
+  if (!Array.isArray(local?.records) || !Array.isArray(actor?.records)) throw Error('Expected complete record arrays');
   const a=index(local.records), b=index(actor.records);
   const aTime=timing(local), bTime=timing(actor);
   const overlap=aTime && bTime ? Math.max(aTime.start,bTime.start)<=Math.min(aTime.end,bTime.end) : null;
@@ -87,18 +104,29 @@ export function compare(local,actor) {
     actor.status==='SUCCEEDED' && sameInput===true && overlap===true;
   const shared=[...a.products.keys()].filter(id=>b.products.has(id));
   const comparable=shared.filter(id=>!a.duplicates.has(id) && !b.duplicates.has(id));
-  const timeGapsMs=comparable.flatMap(id=>{
-    const left=Date.parse(a.products.get(id).scrapedAt), right=Date.parse(b.products.get(id).scrapedAt);
-    return Number.isFinite(left) && Number.isFinite(right) ? [Math.abs(left-right)] : [];
-  }).sort((x,y)=>x-y);
+  const observations=comparable.map(sku=>{
+    const left=a.products.get(sku),right=b.products.get(sku);
+    const elapsed=Date.parse(left.scrapedAt)-Date.parse(right.scrapedAt);
+    const differences={};
+    for (const field of columns) {
+      if (Object.hasOwn(left,field)!==Object.hasOwn(right,field) || !isDeepStrictEqual(left[field],right[field])) {
+        differences[field]={local:observation(left,field),actor:observation(right,field)};
+      }
+    }
+    return {sku,localTime:left.scrapedAt ?? null,actorTime:right.scrapedAt ?? null,
+      localMinusActorMs:Number.isFinite(elapsed) ? elapsed : null,differences};
+  });
+  const timeGapsMs=observations.filter(row=>row.localMinusActorMs !== null)
+    .map(row=>Math.abs(row.localMinusActorMs)).sort((x,y)=>x-y);
   const fields={};
   for (const field of columns) {
-    let equal=0, different=0, bothNull=0,localMissing=0,actorMissing=0,localNull=0,actorNull=0;
+    let equal=0, different=0, bothNull=0,bothAbsent=0,localMissing=0,actorMissing=0,localNull=0,actorNull=0;
     for (const id of comparable) {
       const left=a.products.get(id), right=b.products.get(id);
       const l=Object.hasOwn(left,field), r=Object.hasOwn(right,field);
       if (!l) localMissing++;
       if (!r) actorMissing++;
+      if (!l && !r) bothAbsent++;
       if (l && left[field]===null) localNull++;
       if (r && right[field]===null) actorNull++;
       if (!l || !r) continue;
@@ -106,7 +134,7 @@ export function compare(local,actor) {
       else if (isDeepStrictEqual(left[field],right[field])) equal++;
       else different++;
     }
-    fields[field]={equal,different,bothNull,localMissing,actorMissing,localNull,actorNull};
+    fields[field]={equal,different,bothNull,bothAbsent,localMissing,actorMissing,localNull,actorNull};
   }
   function fieldCoverage(rows) {
     return Object.fromEntries(columns.map(field=>{
@@ -120,7 +148,7 @@ export function compare(local,actor) {
       return [field,{values:present-nulls,nulls,missing:rows.length-present}];
     }));
   }
-  const summarize=(run,idx,time)=>({status:run.status ?? null,rows:run.records.length,unique:idx.products.size,
+  const summarize=(run,idx,time)=>({status:run.status ?? run.state ?? null,rows:run.records.length,unique:idx.products.size,
     invalidSkuRows:idx.invalid,duplicateSkus:[...idx.duplicates],startedAt:run.startedAt ?? null,
     finishedAt:run.finishedAt ?? null,elapsedMs:time?.elapsedMs ?? null,
     rowsPerSecond:time?.elapsedMs > 0 ? run.records.length*1000/time.elapsedMs : null,
@@ -132,11 +160,8 @@ export function compare(local,actor) {
     onlyLocal:[...a.products.keys()].filter(id=>!b.products.has(id)),onlyActor:[...b.products.keys()].filter(id=>!a.products.has(id)),
     attributionDifferences:comparable.filter(id=>a.products.get(id).searchQuery!==b.products.get(id).searchQuery)
       .map(sku=>({sku,local:a.products.get(sku).searchQuery ?? null,actor:b.products.get(sku).searchQuery ?? null})),
-    changedFields:comparable.map(sku=>{
-      const left=a.products.get(sku),right=b.products.get(sku);
-      return {sku,fields:columns.filter(field=>Object.hasOwn(left,field)!==Object.hasOwn(right,field) ||
-        !isDeepStrictEqual(left[field],right[field]))};
-    }).filter(row=>row.fields.length),fields};
+    observations,
+    changedFields:observations.map(({sku,differences})=>({sku,fields:Object.keys(differences)})).filter(row=>row.fields.length),fields};
 }
 
 async function main([action,first,second,...extra]) {

@@ -18,8 +18,8 @@ test('paired timing is independent of row order, equality and billing evidence',
   assert.equal(r.compared,2);
   assert.equal(r.local.elapsedMs,10000);
   assert.deepEqual(r.attributionDifferences,[{sku:'02',local:'B',actor:'A'}]);
-  assert.deepEqual(r.fields.currentPrice,{equal:0,different:2,bothNull:0,localMissing:0,actorMissing:0,localNull:1,actorNull:1});
-  assert.deepEqual(r.fields.listPrice,{equal:0,different:0,bothNull:1,localMissing:1,actorMissing:1,localNull:1,actorNull:1});
+  assert.deepEqual(r.fields.currentPrice,{equal:0,different:2,bothNull:0,bothAbsent:0,localMissing:0,actorMissing:0,localNull:1,actorNull:1});
+  assert.deepEqual(r.fields.listPrice,{equal:0,different:0,bothNull:1,bothAbsent:1,localMissing:1,actorMissing:1,localNull:1,actorNull:1});
   assert.equal(r.fields.inStock.equal,1);
   assert.deepEqual(r.local.fieldCoverage.currentPrice,{values:1,nulls:1,missing:0});
   assert.deepEqual(r.actor.fieldCoverage.inStock,{values:1,nulls:0,missing:1});
@@ -36,6 +36,27 @@ test('old samples, different inputs, incomplete runs and missing timing cannot e
     assert.equal(compare(local,{...actor,...change}).paired,false);
   }
   assert.throws(()=>compare(local,{...actor,input:{pageSize:4}}),/Unexpected/);
+});
+
+test('downloaded exports share the same comparator and keep observation times, zero, false and omissions',()=>{
+  const actorRow={sku:'01',currentPrice:0,listPrice:null,inStock:false,scrapedAt:'2026-10-27T12:00:00Z'};
+  const localRow={...actorRow,currentPrice:null,stockSignal:0,scrapedAt:'2026-10-27T12:02:00Z'};
+  const report=compare([localRow],[actorRow]);
+  assert.equal(report.paired,false);
+  assert.equal(report.sameInput,null);
+  assert.equal(report.actor.usageTotalUsd,null);
+  assert.equal(report.fields.inStock.equal,1);
+  const [row]=report.observations;
+  assert.equal(row.localMinusActorMs,120000);
+  assert.deepEqual(row.differences.currentPrice,{actor:{state:'reported',value:0},local:{state:'null'}});
+  assert.deepEqual(row.differences.stockSignal,{actor:{state:'absent'},local:{state:'reported',value:0}});
+  const page={offset:0,nextOffset:null,count:1,state:'succeeded',records:[localRow]};
+  assert.deepEqual(compare(page,[actorRow]).observations,report.observations);
+  for (const incomplete of [{offset:1},{nextOffset:1},{count:2},{state:'running'}]) {
+    assert.throws(()=>compare({...page,...incomplete},[actorRow]),/complete dataset/);
+  }
+  assert.throws(()=>compare([localRow],[{...actorRow,retailerId:'paguemenos'}]),/only Drogasil/);
+  assert.throws(()=>compare(null,[actorRow]),/complete record arrays/);
 });
 
 test('diagnoses invalid and duplicate records without comparing an arbitrary copy',()=>{
