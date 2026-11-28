@@ -44,3 +44,41 @@ jobs:
           for skill in skills/*/SKILL.md; do
             unzip -p "$RUNNER_TEMP/first.zip" "$skill" | cmp "$skill" -
           done
+  parity:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - release: main
+            pm: main
+            dsp: main
+            flags: ''
+          - release: tested
+            pm: 66ff17979c9a532d91df0de0fca5edce474841a1
+            dsp: cfa85886692b4acb575e5188b35d62a78de906d2
+            flags: --candidate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - run: npm ci --prefix mcp
+      - run: node scripts/parity/contract.mjs
+      - run: node scripts/parity/cli.mjs drogasil bin/drogasil.js --strict
+      - uses: actions/checkout@v4
+        with:
+          repository: godely/paguemenos-cli
+          ref: ${{ matrix.pm }}
+          path: partners/paguemenos
+      - uses: actions/checkout@v4
+        with:
+          repository: godely/drogariasaopaulo-cli
+          ref: ${{ matrix.dsp }}
+          path: partners/drogariasaopaulo
+      - name: Check both standalone clients against the Drogasil contract
+        run: |
+          for partner in paguemenos drogariasaopaulo; do
+            npm ci --prefix "partners/$partner"
+            node scripts/parity/cli.mjs "$partner" "partners/$partner/cli.js" ${{ matrix.flags }} | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+        shell: bash
