@@ -43,6 +43,7 @@ export function renderPurchase(result) {
         formatPrice(p.referencePriceBRL) || 'Não informado', p.store?.quantity ?? 'Desconhecida'])));
     showNotes(false);
     if (issues[t.status]) out.push(issues[t.status]);
+    if (t.status === 'choose_manufacturer') out.push('Qual fabricante você prefere? ' + t.brands.join(' ou ') + '?');
     if (t.candidates?.length) out.push(table(['SKU', 'Medicamento', 'Tipo'], t.candidates.map(p => [p.sku, p.name, p.type])));
     if (t.nameCandidates?.length) out.push(t.nameCandidates.join(', '));
     if (t.missingFields) out.push('Equivalência não verificada. Campos ausentes: ' + t.missingFields.join(', '));

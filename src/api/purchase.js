@@ -1,6 +1,6 @@
 import { compareProducts, normalizeOrigin } from './compare.js';
 import { listStores } from './graphql.js';
-import { productInfo, brandOptions } from './product-info.js';
+import { productInfo, brandOptions, genericManufacturers } from './product-info.js';
 import { fold, resolveMedication } from './medications.js';
 import { searchStockWindows, stockQuantity } from './stock-search.js';
 import { optimizePlans } from './purchase-plans.js';
@@ -85,8 +85,16 @@ async function prepareItem(item, label, catalog, expandSku) {
   const namedPresentation = p => brandSkus?.includes(String(p.sku)) && result.requestedBrandName &&
     fold(item.brand).startsWith(fold(result.requestedBrandName) + ' ') &&
     (fold(p.name) + ' ').startsWith(fold(item.brand) + ' ');
-  const matchesBrand = p => [p.brand, p.filters?.Marca, p.details?.marca].flat()
+  const matchesTradeName = p => [p.brand, p.filters?.Marca, p.details?.marca].flat()
     .some(name => name && fold(name) === fold(item.brand)) || namedPresentation(p);
+  const manufacturers = item.brand && !products.some(matchesTradeName) ? genericManufacturers(products,item.brand) : [];
+  if (manufacturers.length > 1) {
+    table.status = 'choose_manufacturer';
+    table.brands = manufacturers.map(group => group.name);
+    return {table, products:[]};
+  }
+  const manufacturerProducts = new Set(manufacturers[0]?.products);
+  const matchesBrand = p => matchesTradeName(p) || manufacturerProducts.has(p);
   if (item.brand && item.includeGenerics !== undefined && fold(item.brand) !== fold(result.requestedBrandName ?? '')) {
     brandSkus = products.filter(matchesBrand).map(p => String(p.sku));
   }
