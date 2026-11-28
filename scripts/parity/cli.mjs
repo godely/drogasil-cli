@@ -81,9 +81,6 @@ if (batch.status !== 3 || JSON.stringify(JSON.parse(batch.stdout || 'null')) !==
 gaps.sort();
 if (process.argv.includes('--print')) console.log(JSON.stringify(gaps, null, 2));
 else {
-  const known = JSON.parse(await readFile(new URL('./gaps.json', import.meta.url)));
   console.log(name + ': ' + gaps.length + ' open checks\n' + gaps.join('\n'));
-  const allowed=strict ? [] : known[name];
-  const regressions=gaps.filter(gap=>!allowed.includes(gap) && !allowed.includes(gap.split(' --')[0]));
-  assert.deepEqual(regressions, [], 'Untracked CLI parity regression');
+  assert.deepEqual(gaps, [], 'CLI parity regression');
 }
