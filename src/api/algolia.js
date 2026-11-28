@@ -1,6 +1,6 @@
 // Product search and lookup: Algolia index behind a Topsort ad worker.
 
-import { postJson } from './http.js';
+import { HttpError, postJson } from './http.js';
 
 const BASE = 'https://drogasil-prod.topsort.workers.dev/1/indexes/*';
 export const INDEX_NAME = 'drogasil-rd-product-index';
@@ -61,7 +61,10 @@ export async function getProductsBySku(skus, attributes) {
     return r;
   });
   const json = await postJson(`${BASE}/objects`, { requests }, ALGOLIA_HEADERS);
-  return json?.results ?? [];
+  if (!Array.isArray(json?.results) || json.results.length !== requests.length ||
+      json.results.some(hit => hit !== null && (!hit || typeof hit !== 'object' || Array.isArray(hit) || hit.error || hit.message)))
+    throw new HttpError(200, BASE + '/objects', null, 'Unexpected catalog object lookup response');
+  return json.results;
 }
 
 const nameFacets = ['details.activeIngredients.description', 'filters.Marca'];

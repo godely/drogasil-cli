@@ -1,12 +1,46 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { literalBrandPack } from '../src/api/compare.js';
+import { catalogQuery, matchesRequest } from '../src/api/presentation-label.js';
+import { samePack } from '../src/api/retail-prices.js';
+import { medicationCard } from '../src/retailers/catalog.js';
 import { brandPacks, withBrandPacks } from '../src/retailers/presentation-search.js';
+import { retailerComparison } from '../src/retailers/shopping.js';
 
 const gtin = '7894916513005';
 const bottle = { name: 'Patz Hemitartarato de Zolpidem 10mg/ml 20ml Solução Gotas', gtin, sku: 'local', sellerId: '1' };
 const reference = { name: 'Patz GTS 10mg/ml gotas 20ml', sku: 'reference', eanCode: gtin };
 const prose = 'Patz GTS em gotas, frasco de 20 mL';
+
+test('sublingual matching uses each pack’s own evidence and preserves strength and count', () => {
+  const name = 'Rivotril 0,25 mg 30 comprimidos';
+  const structured = {name, filters:{'Forma farmacêutica':'Comprimido sublingual','Via de administração':'Uso oral'}};
+  const plural = {name:name+' sublinguais'};
+  const mixedRoutes = {'Via de Administração':['Sublingual','Via oral']};
+  for (const row of [structured, plural]) {
+    assert.ok(matchesRequest(row, catalogQuery('Rivotril em comprimidos sublinguais')));
+    assert.ok(matchesRequest(row, '0,25 mg 30 comprimidos sublinguais'));
+    assert.equal(matchesRequest(row, '2 mg sublingual'), false);
+    assert.equal(matchesRequest(row, '60 comprimidos sublinguais'), false);
+  }
+  assert.equal(literalBrandPack({name, facts:mixedRoutes}, 'Rivotril sublingual', 'Rivotril'), false);
+  assert.equal(literalBrandPack({name, facts:{'Via de Administração':['Via sublingual']}}, 'Rivotril sublingual', 'Rivotril'), true);
+  assert.deepEqual(medicationCard({...plural,facts:mixedRoutes}).routes,['Sublingual']);
+  assert.ok(samePack({...structured,gtin}, {...plural,gtin}));
+  assert.equal(samePack({...plural,gtin}, {gtin,name,itemName:name,facts:mixedRoutes}), false);
+});
+
+test('a product detail listing the manufacturer preserves the verified trade name only for the same pack', async () => {
+  const row={sku:'10',gtin,sellerId:'1',brand:'Fabricante',name:'Marca 0,25 mg 30 comprimidos sublinguais'};
+  const source={search:async()=>[row],product:async()=>[row]};
+  const adapter=withBrandPacks(source,async()=>({brand:'Marca',hits:[]}));
+  const args={retailer:'partner',query:'Marca sublingual',includeGenerics:false};
+  const result=await retailerComparison(args,adapter,{});
+  assert.equal(result.products[0].requestedTradeName,'Marca');
+  assert.equal(result.products[0].brand,'Fabricante');
+  const changed=await retailerComparison(args,{...adapter,product:async()=>[{...row,gtin:'7899547543766'}]},{});
+  assert.equal(changed.products[0].requestedTradeName,undefined);
+});
 
 test('a local pack can omit the brand suffix and still corroborate drops and the bottle volume', async () => {
   const source = { search: async () => [bottle], byGtin: async () => [bottle, { ...bottle, sku: 'kit', name: bottle.name + ' + porta-comprimidos' }] };

@@ -34,12 +34,18 @@ const simpleOralRules = new Map([
   ['talidomida', 'Notificação de Receita de Talidomida'],
 ]);
 
-export function prescriptionInfo(stripe, description, ingredients, route) {
+// A confirmed pack-level red or black stripe establishes the prescription
+// requirement. Retention and the particular form have their own evidence.
+const stripeGuide = 'https://www.gov.br/anvisa/pt-br/acessoainformacao/perguntasfrequentes/medicamentos/medicamentos-isentos-de-prescricao';
+export function prescriptionInfo(stripe, description, ingredients, route, classifications = [stripe]) {
+  const labels = [...new Set([classifications].flat().filter(value => typeof value === 'string' && value.trim()).map(fold))];
+  const labeled = labels.length === 1 && /^tarja (?:vermelha|preta)$/.test(labels[0]);
+  const stripeEvidence = labeled ? {stripeLabel: labels[0], stripeRule: stripeGuide} : {};
   const evidence = fold([stripe, description].filter(Boolean).join(' '));
   const retained = /(?:com|sujeit[ao] a) retencao (?:de |da )?receita/.test(evidence);
   const noRetention = /sem retencao (?:de |da )?receita/.test(evidence);
   const exempt = /isento de prescricao|venda (?:livre|sem prescricao)/.test(evidence);
-  const prescribed = /venda (?:sob|so(?:b)?(?: com)?) prescricao|venda mediante (?:a )?prescricao|receita obrigatoria/.test(evidence) || retained || (noRetention && /tarjad[oa]/.test(evidence));
+  const prescribed = labeled || /venda (?:sob|so(?:b)?(?: com)?) prescricao|venda mediante (?:a )?prescricao|receita obrigatoria/.test(evidence) || retained || (noRetention && /tarjad[oa]/.test(evidence));
   const single = ingredients.length === 1 ? fold(ingredients[0]).replace(/^cloridrato de /, '').replace(/ mono(idratad[oa]|hidratad[oa])$/, '') : '';
   const oral = /^(?:uso |via )?(?:oral|sublingual)$/.test(fold(route ?? ''));
   // Annex I, list A1, item 65 and its salts addendum. An opium preparation
@@ -47,9 +53,9 @@ export function prescriptionInfo(stripe, description, ingredients, route) {
   const morphine = oral && /^(?:morfina|sulfato de morfina(?: pentaidratado| pentahidratado)?)$/.test(single);
   const form = oral && (morphine ? 'Notificação de Receita A' : simpleOralRules.get(single));
   const conflict = (exempt && prescribed) || (retained && noRetention) || (form && (exempt || noRetention));
-  if (conflict) return { required: null, retained: null, form: null, conflict: true };
-  if (form) return { required: true, retained: true, form, rule, ...(morphine && {list:'A1'}), verifiedOn: morphine ? '2026-11-28' : '2026-11-26' };
-  return { required: prescribed ? true : exempt ? false : null,
+  if (conflict) return { ...stripeEvidence, required: null, retained: null, form: null, conflict: true };
+  if (form) return { ...stripeEvidence, required: true, retained: true, form, rule, ...(morphine && {list:'A1'}), verifiedOn: morphine ? '2026-11-28' : '2026-11-26' };
+  return { ...stripeEvidence, required: prescribed ? true : exempt ? false : null,
     retained: noRetention || exempt ? false : retained ? true : null,
     form: exempt ? 'Isento de prescrição' : prescribed && noRetention ? 'Receita simples' : null };
 }

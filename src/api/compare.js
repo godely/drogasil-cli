@@ -1,4 +1,4 @@
-import { normalize, catalogQuery, dropSearchTerms, documentedDrops, presentationTokens, matchesRequest } from './presentation-label.js';
+import { normalize, normalizeSublingual, requestsSublingual, requestsDrops, catalogQuery, presentationSearchTerms, documentedDrops, presentationTokens, matchesRequest } from './presentation-label.js';
 import { countedPack, directCountedListing } from './counted-pack.js';
 import { getProductsBySku, searchProducts } from './algolia.js';
 import { normalizeCep } from './graphql.js';
@@ -69,7 +69,7 @@ function describePresentation(product) {
     if (!unit || !Number.isFinite(dose) || dose <= 0) missing.add('strength');
     doses.push(JSON.stringify([name, dose, unit]));
   }
-  const label = normalize([product.name, product.brand, form, pack].join(' '));
+  const label = normalizeSublingual(normalize([product.name, product.brand, form, pack].join(' ')));
   const markers = label.match(/\b(?:xr|xl|sr|cr|er|dr|la|lp|mr|retard|chrono|depot|orodispersivel|sublingual|mastigavel|efervescente|gastrorresistente|liberacao (?:prolongada|modificada|controlada|retardada|lenta|bifasica))\b/g) ?? [];
   // Titles disambiguate liquid concentrations and bottle counts missing from structured doses.
   const liquidDetails = presentationTokens(product.name).filter(t => t.includes('/') || /^\d+frasco$/.test(t));
@@ -95,6 +95,11 @@ const immediateLabel = /\b(?:liberacao (?:imediata|convencional)|immediate[- ]re
 const extendedLabel = /\b(?:xr|xl|er|sr|lp|liberacao (?:prolongada|lenta)|extended[- ]release)\b/;
 const otherModifiedLabel = /\b(?:cr|dr|la|mr|retard|chrono|depot|gastrorresistente|liberacao (?:modificada|controlada|retardada|bifasica))\b/;
 
+// A shopper may describe conventional tablets this way without naming the release.
+function normalizeReleaseRequest(query) {
+  return query.replace(/\b(comprimidos?)\s+(?:comum|comuns|convencional|convencionais)\b/gi, '$1 de liberação imediata');
+}
+
 function matchesRelease(product, release) {
   if (!release) return true;
   const label = normalize([product.name, product.brand, product.filters?.['Forma farmacêutica'], product.details?.quantidade].join(' '));
@@ -112,8 +117,10 @@ export function literalBrandPack(row, query, brand) {
   if (name !== label && !name.startsWith(label+' ') && normalize(row.brand)!==label) return false;
   if (/\b(?:kit|brinde|gratis)\b|\+\s*(?:\d+\s*)?porta[- ]?comprimidos?/.test(name)) return false;
   const facts=row.facts??{};
-  const product={name:row.name,brand:row.brand,filters:{'Forma farmacêutica':facts['Forma Farmacêutica']},
+  const product={name:row.name,brand:row.brand,filters:{'Forma farmacêutica':facts['Forma Farmacêutica'] ?? facts.Apresentação,
+    'Via de administração':facts['Via de Administração'] ?? facts['Forma de Administração']},
     details:{quantidade:facts.Quantidade,dosageList:[facts.Dosagem].flat().filter(Boolean)}};
+  query = normalizeReleaseRequest(query);
   const request=normalize(query);
   const immediate=immediateLabel.test(request), extended=extendedLabel.test(request);
   if (immediate && (extended || otherModifiedLabel.test(request))) return false;
@@ -127,7 +134,7 @@ export function literalBrandPack(row, query, brand) {
 
 async function referenceOptions(query, release) {
   if (/^\d+$/.test(query)) return (await getProductsBySku([query])).filter(p => p && matchesRelease(p, release));
-  const candidates = (await searchAll(dropSearchTerms(query) || query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
+  const candidates = (await searchAll(presentationSearchTerms(query) || query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
   const exact = candidates.filter(product => {
     const brandDose = [product.brand, ...(product.details?.dosageList ?? [])].join(' ');
     return [product.name, brandDose].some(value => normalize(value) === normalize(query));
@@ -141,7 +148,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
   if (store && (!origin || (store !== 'nearest' && !/^\d+$/.test(store)))) {
     throw new TypeError('store requires an origin and either nearest or a numeric store ID');
   }
-  query = String(query).trim();
+  query = normalizeReleaseRequest(String(query).trim());
   const label = normalize(query);
   const immediate = immediateLabel.test(label);
   if (immediate && (extendedLabel.test(label) || otherModifiedLabel.test(label))) {
@@ -161,7 +168,8 @@ export async function compareProducts(query, { origin = null, store, resolveName
     refs = [];
   } else if (resolved?.filters) {
     const suffix = catalogQuery(resolved.suffix);
-    refs = await ingredientPresentations(lookup, { ...resolved, suffix:dropSearchTerms(suffix) }, includeUnpriced);
+    const searchTerm = requestsSublingual(suffix) ? '' : presentationSearchTerms(suffix);
+    refs = await ingredientPresentations(lookup, { ...resolved, suffix:searchTerm }, includeUnpriced);
     refs = refs.filter(product => (!suffix || matchesRequest(product, suffix)) && matchesRelease(product, release));
     if (!refs.length && release === 'extended' && resolved.kind === 'brand') {
       const family = normalize(resolved.name);
@@ -176,6 +184,10 @@ export async function compareProducts(query, { origin = null, store, resolveName
   if (resolved?.kind === 'brand') {
     info.requestedBrandName = resolved.name;
     info.requestedBrandSkus = refs.map(p => String(p.sku));
+  }
+  if (resolved?.kind === 'ingredient' && requestsDrops(query)) {
+    info.requestedIngredientName = resolved.name;
+    info.referenceSkus = refs.map(p => String(p.sku));
   }
   if (!info.requestedBrandSkus && resolved?.kind === 'text') {
     const brand = refs[0].brand;
@@ -196,6 +208,14 @@ export async function compareProducts(query, { origin = null, store, resolveName
     const direct = refs.map(product =>
       Number.isFinite(product.price) && product.price > 0 ? product : { ...product, price: null });
     direct.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
+    // Each listing can satisfy the named ingredient directly when its own title
+    // and composition verify the requested pack. Brand equivalence remains separate.
+    if (directShopping && !origin && onlyFormMissing && resolved?.kind === 'ingredient') {
+      const pack = countedPack(resolved.suffix);
+      if (pack && refs.every(product => directCountedListing(product, resolved.name, pack))) {
+        return { ...info, status: 'matches', matchBasis: 'direct_requested_pack', products: direct };
+      }
+    }
     const products = origin ? await compareNearby(direct, origin, store, expandSearch, info) : direct;
     return { ...info, status: 'incomplete_presentation', missingFields, referenceSkus: direct.map(p => String(p.sku)),
       products, hint: 'Report these direct catalog hits and their available stock. Equivalence is unverified. Confirmation or retrying these SKUs cannot fill the missing catalog fields.' };

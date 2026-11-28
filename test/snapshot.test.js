@@ -6,6 +6,63 @@ import path from 'node:path';
 import { collectSnapshot, readSnapshot } from '../src/snapshots/index.js';
 import { catalogSnapshot } from '../src/retailers/catalog.js';
 
+test('simultaneous collections persist every run when the snapshot database is new', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'snapshot-first-use-'));
+  const previous = process.env.DROGASIL_SNAPSHOT_DB;
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DROGASIL_SNAPSHOT_DB;
+    else process.env.DROGASIL_SNAPSHOT_DB = previous;
+    await rm(dir, { recursive: true, force: true });
+  });
+  for (let batch = 0; batch < 4; batch++) {
+    process.env.DROGASIL_SNAPSHOT_DB = path.join(dir, batch + '.sqlite');
+    const queries = Array.from({length:6}, (_, i) => 'term' + i);
+    const source = {
+      search: async () => ({hits:[{sku:'123'}], nbPages:1}),
+      read: async ({sku}, searchQuery) => ({snapshot:{sku, searchQuery}}),
+    };
+    const results = await Promise.allSettled(queries.map(query => collectSnapshot([query], {}, source)));
+    const ids = new Set();
+    for (const [i, result] of results.entries()) {
+      assert.equal(result.status, 'fulfilled', result.reason?.message);
+      assert.equal(result.value.state, 'succeeded', result.value.error);
+      ids.add(result.value.runId);
+      const stored = await readSnapshot(result.value.runId);
+      assert.deepEqual(stored.records, [{sku:'123', searchQuery:queries[i]}]);
+    }
+    assert.equal(ids.size, queries.length);
+  }
+});
+
+test('an omitted query collects the first 20 paracetamol products, explicit empty inputs fail before collection', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'snapshot-default-'));
+  const previous = process.env.DROGASIL_SNAPSHOT_DB;
+  process.env.DROGASIL_SNAPSHOT_DB = path.join(dir, 'runs.sqlite');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DROGASIL_SNAPSHOT_DB;
+    else process.env.DROGASIL_SNAPSHOT_DB = previous;
+    await rm(dir, { recursive: true, force: true });
+  });
+  const searches = [];
+  const sources = {
+    search: async query => {
+      searches.push(query);
+      return {hits: Array.from({length:25}, (_, i) => ({sku:String(i + 1)})), nbPages:1};
+    },
+    read: async ({sku}, searchQuery) => ({snapshot:{sku, searchQuery}}),
+  };
+  for (const invalid of [null, [], [''], ['  '], ['shampoo', ' ']]) {
+    await assert.rejects(collectSnapshot(invalid, {}, sources), TypeError);
+  }
+  assert.deepEqual(searches, []);
+  const implicit = await collectSnapshot(undefined, {}, sources);
+  const explicit = await collectSnapshot(['paracetamol'], {}, sources);
+  assert.equal(implicit.state, 'succeeded');
+  assert.equal(implicit.count, 20);
+  assert.deepEqual(implicit.records, explicit.records);
+  assert.deepEqual(searches, ['paracetamol', 'paracetamol']);
+});
+
 test('deduplication, partial failures and page offsets survive independent reads', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'catalog-snapshot-'));
   const previous = process.env.DROGASIL_SNAPSHOT_DB;
@@ -48,7 +105,7 @@ test('partner snapshots retain one coherent seller offer in JSON, CSV and XLSX, 
   const cli = fileURLToPath(new URL('../bin/drogasil.js', import.meta.url));
   for (const retailer of ['paguemenos','drogariasaopaulo']) {
     const result = await catalogSnapshot({retailer, queries:['shampoo'],maxItems:1},
-      {search:async () => [other,main]}, {background:false});
+      {search:async () => [other,main].map(row=>({...row, facts:{Quantidade:['1un']}}))}, {background:false});
     assert.equal(result.state, 'succeeded');
     const [row] = JSON.parse(execFileSync(process.execPath, [cli,'snapshot','export',result.runId,'--format','json']));
     assert.deepEqual(row, result.records[0]);
@@ -57,6 +114,7 @@ test('partner snapshots retain one coherent seller offer in JSON, CSV and XLSX, 
     assert.deepEqual([row.categories,row.categoryPath,row.sourceUrl,row.scrapedAt],
       [['Higiene','Cabelos'],'Higiene > Cabelos',base.sourceUrl,base.observedAt]);
     assert.deepEqual(row.offers.map(o=>o.seller), ['Loja B','Loja A']);
+    assert.deepEqual(row.offers.map(o=>o.packageQuantities), [['1un'],['1un']]);
     for (const format of ['csv','xlsx']) {
       const bytes = execFileSync(process.execPath,[cli,'snapshot','export',result.runId,'--format',format]);
       const cells = JSON.parse(execFileSync('python3',['-c', `

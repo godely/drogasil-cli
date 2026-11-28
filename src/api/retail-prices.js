@@ -1,8 +1,9 @@
 import { searchProducts, getProductsBySku } from './algolia.js';
-import { compareProducts } from './compare.js';
 import { medicationType, productInfo } from './product-info.js';
 import { readStorefront } from './storefront.js';
-import { normalizeCep } from './graphql.js';
+import { compareProducts, normalizeOrigin } from './compare.js';
+import { documentedSublingual } from './presentation-label.js';
+import { consistentPackCount } from './counted-pack.js';
 
 const norm = text => String(text ?? '').normalize('NFD').replace(/\p{M}/gu,'').toLowerCase()
   .replace(/(\d),(\d)/g,'$1.$2').replace(/\s*\/\s*/g,'/');
@@ -20,28 +21,39 @@ function dimensions(title) {
     count: [...text.matchAll(/(\d+)\s*(?:comprimidos?|capsulas?|unidades?|ampolas?|frascos?)\b/g)].map(m=>m[1]).join('|'),
     form: forms.filter(f=>text.includes(f)).join('|'),
     release: /\b(xr|xl|sr|cr|lp|retard)\b|liberacao (?:prolongada|modificada|controlada)/.test(text),
-    sublingual: /sub[- ]?lingual/.test(text),
     route: ['nasal','oftalm','otolog','vaginal','retal','topico'].filter(f=>text.includes(f)).join('|'),
     multiplier: text.match(/\b(\d+)\s*[x×]\s*\d+/)?.[1] ?? '1',
   };
 }
 export function samePack(anchor, row) {
   if (!validBarcode(anchor.gtin) || anchor.gtin !== row.gtin) return false;
+  for (const product of [anchor, row]) {
+    const quantity = product.facts?.Quantidade ?? product.details?.quantidade ?? product.packageQuantities;
+    if (![product.name, product.itemName].every(title => consistentPackCount(title, quantity))) return false;
+  }
   // A seller can advertise an extra item only in its full title while the SKU
   // and itemName still identify the underlying medicine. The barcode cannot
   // establish equivalence for a promotional bundle.
   const bundle = /\b(?:kit|brinde|gratis)\b|\+\s*(?:\d+\s*)?(?:porta[- ]?comprimidos?|frasco|embalagem)|\bleve\s+\d+\s+(?:e\s+)?pague\b/;
   if ([anchor,row].some(p=>bundle.test(norm([p.name,p.itemName].join(' '))))) return false;
   const a = dimensions(anchor.itemName ?? anchor.name), b = dimensions(row.itemName ?? row.name);
-  if (a.release !== b.release || a.sublingual !== b.sublingual || a.route !== b.route || a.multiplier !== b.multiplier) return false;
+  const sublingual = product => documentedSublingual([product.name,product.itemName].join(' '),
+    product.dosageForm ?? product.filters?.['Forma farmacêutica'] ?? product.facts?.['Forma Farmacêutica'],
+    product.administrationRoute ?? product.filters?.['Via de administração'] ?? product.facts?.['Via de Administração']);
+  if (a.release !== b.release || sublingual(anchor) !== sublingual(row) || a.route !== b.route || a.multiplier !== b.multiplier) return false;
   for (const key of ['strength','volume','count','form']) if (a[key] && b[key] && a[key] !== b[key]) return false;
   return !!(a.strength && a.strength === b.strength && ((a.volume && a.volume === b.volume) || (a.count && a.count === b.count)));
 }
-function reference(p) { return { ...productInfo(p), gtin: String(p.eanCode ?? ''), itemName: p.name }; }
+function reference(p) { return { ...productInfo(p), gtin: String(p.eanCode ?? ''), itemName: p.name,
+  dosageForm:p.filters?.['Forma farmacêutica'], administrationRoute:p.filters?.['Via de administração'] }; }
 
-export async function compareRetailPrices(input, { zipcode, retailers, includeGenerics = false, includeDrogasil = true }) {
+export async function compareRetailPrices(input, { zipcode, coordinates, retailers, includeGenerics = false, includeDrogasil = true }) {
   const query = String(input).trim();
-  zipcode = normalizeCep(zipcode);
+  if (zipcode != null && coordinates != null) throw new TypeError('Informe apenas uma origem');
+  const normalized = normalizeOrigin(zipcode != null ? { zipcode } :
+    { latitude: coordinates?.latitude, longitude: coordinates?.longitude });
+  const origin = normalized.zipcode ?? normalized;
+  const localPriceScope = normalized.zipcode ? 'verified_for_cep' : 'verified_for_coordinates';
   const exactGtin = validBarcode(query);
   let hits, catalogFailed = false;
   if (exactGtin) {
@@ -76,21 +88,26 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
   } catch { checked.push({ retailer:'Drogasil',status:'source_failed' }); }
   for (const provider of retailers) {
     try {
-      if (provider.serves && !await provider.serves(zipcode)) {
+      if (provider.serves && !await provider.serves(origin)) {
         checked.push({ retailer: provider.name, status: 'outside_local_directory' });
         continue;
       }
       const candidates = await provider.byGtin(anchor?.gtin ?? query);
       if (!anchor) {
         const row = candidates.find(candidate => candidate.gtin === query && samePack(candidate, candidate));
-        if (row) anchor = { retailer: provider.name, sku: row.sku, gtin: row.gtin, name: row.name, itemName: row.itemName };
+        if (row) anchor = { retailer: provider.name, sku: row.sku, gtin: row.gtin, name: row.name, itemName: row.itemName,
+          dosageForm:row.facts?.['Forma Farmacêutica'], administrationRoute:row.facts?.['Via de Administração'] };
       }
       const matched = anchor ? candidates.filter(row => samePack(anchor,row)) : [];
       let verified = 0;
       for (const row of matched) {
         let offer = row;
-        try { offer = await provider.local(row,zipcode); }
+        try { offer = await provider.local(row,origin); }
         catch { issues.push({ retailer:provider.name, sku:row.sku, status:'location_lookup_failed' }); }
+        if (['verified_for_coordinates', 'verified_for_cep'].includes(offer.priceScope) && offer.priceScope !== localPriceScope) {
+          issues.push({ retailer:provider.name, sku:row.sku, status:'location_scope_mismatch' });
+          offer = row;
+        }
         const { facts, methods = [], branches, ...publicFields } = offer;
         const entry = { ...publicFields, type: offer.type ?? medicationType(offer),
           ...(branches ? { reportedBranches: branches } : {}),
@@ -99,7 +116,7 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
             channel, service, feeBRL, ...(channel === 'pickup-in-point' && { pickupPointId, branch, address }),
           })),
         };
-        if (offer.priceScope === 'verified_for_cep' && Number.isFinite(offer.currentPrice)) {
+        if (offer.priceScope === localPriceScope && Number.isFinite(offer.currentPrice)) {
           verifiedOffers.push(entry); verified++;
         } else onlineOffers.push(entry);
       }

@@ -187,6 +187,9 @@
     },
     "stores": {
       "flags": {
+        "cep": {
+          "type": "string"
+        },
         "help": {
           "type": "boolean",
           "short": "h"
@@ -194,6 +197,12 @@
         "json": {
           "type": "boolean",
           "default": false
+        },
+        "lat": {
+          "type": "string"
+        },
+        "lon": {
+          "type": "string"
         }
       }
     }
@@ -232,6 +241,7 @@
       "store"
     ],
     "compare_pharmacy_prices": [
+      "coordinates",
       "includeGenerics",
       "query",
       "zipcode"

@@ -7,6 +7,7 @@ import { readStorefront } from '../api/storefront.js';
 import { partnerSnapshotRecord } from '../retailers/snapshot-record.js';
 
 const storeScript = fileURLToPath(new URL('./db.py', import.meta.url));
+export const DEFAULT_SNAPSHOT_QUERY = 'paracetamol';
 async function store(input) {
   const child = spawn('python3', [storeScript], { stdio: ['pipe', 'pipe', 'pipe'] });
   const output = [], errors = [];
@@ -36,7 +37,7 @@ export async function readSnapshot(id, { offset = 0, limit = 20 } = {}) {
   return page;
 }
 
-export async function collectSnapshot(queries, { maxItems = 20, background = false } = {}, sources = {}) {
+export async function collectSnapshot(queries = [DEFAULT_SNAPSHOT_QUERY], { maxItems = 20, background = false } = {}, sources = {}) {
   if (!Array.isArray(queries) || queries.length < 1 || queries.length > 10 ||
       queries.some(q => typeof q !== 'string' || !q.trim() || q.trim().length > 150) ||
       !Number.isSafeInteger(maxItems) || maxItems < 1 || maxItems > 1000) throw new TypeError('Expected 1–10 queries and 1–1000 items');

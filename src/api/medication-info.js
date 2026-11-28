@@ -2,7 +2,7 @@ import { getProductsBySku, searchProducts } from './algolia.js';
 import { resolveMedication, fold } from './medications.js';
 import { medicationType } from './product-info.js';
 import { brazilianPresentations, prescriptionInfo } from './regulatory-info.js';
-import { catalogQuery, documentedDrops, dropSearchTerms, labelDescription, matchesRequest, requestsDrops } from './presentation-label.js';
+import { catalogQuery, documentedDrops, presentationSearchTerms, labelDescription, matchesRequest, requestsDrops, requestsSublingual } from './presentation-label.js';
 
 const attributes = ['eanCode', 'sku', 'name', 'url', 'isActive', 'brand', 'details', 'filters.Forma farmacêutica',
   'filters.Via de administração', 'filters.Marca', 'filters.Tipo de medicamento', 'filters.Medicamentos genéricos',
@@ -53,6 +53,7 @@ export function medicationFacts(product) {
   const source = typeof product.url === 'string' && /^[\w%-][\w%./-]*\.html$/i.test(product.url) ?
     'https://www.drogasil.com.br/' + product.url : null;
   return { sku: String(product.sku), name: title, type: medicationType(product), registration: details.ms ?? null,
+    manufacturer:details.fabricante ?? null, manufacturerSource:details.fabricante ? source : null,
     ingredients, form: drops ? dropForm : form,
     route, ...(routeConflict && {routeStatus:'conflicting_evidence'}), release, pack, source,
     prescription: prescriptionInfo(details.descricao_tarja, description || body, ingredients.map(a => a.name), route) };
@@ -67,7 +68,8 @@ export async function infoRecords(query) {
     const opts = { filters: name.filters ?? 'categories.id=532', hitsPerPage: 100, attributes };
     const drops = requestsDrops(query);
     const requested = catalogQuery(name.suffix);
-    const term = drops ? (name.filters ? '' : dropSearchTerms(requested)) : name.suffix;
+    const sublingual = requestsSublingual(query);
+    const term = drops || sublingual ? (name.filters ? '' : presentationSearchTerms(requested)) : name.suffix;
     const first = await searchProducts(term, opts);
     hits = first.hits.slice();
     for (let page = 1; page < first.nbPages; page++) {
@@ -81,6 +83,8 @@ export async function infoRecords(query) {
           details:{...product.details, dosageList:fact.ingredients.map(ingredient => ingredient.strength)}};
         return !requested || matchesRequest(evidence, requested);
       });
+    } else if (sublingual) {
+      hits = hits.filter(product => matchesRequest(product, requested));
     } else if (name.kind === 'text') {
       const terms = fold(query).split(/\s+/);
       hits = hits.filter(p => terms.every(term => fold(p.name).split(/[^\p{L}\d.,/]+/u).includes(term)));
@@ -99,7 +103,16 @@ export async function infoRecords(query) {
 }
 
 async function lookup(query, scope) {
-  const {name, hits} = await infoRecords(query);
+  let records;
+  try {
+    records = await infoRecords(query);
+  } catch {
+    // A failed catalog lookup says nothing about another item in the same request.
+    const result = {query, status:'source_failed', products:[]};
+    if (scope === 'brazil' && !/^\d+$/.test(query)) result.brazil = await brazilianPresentations(query);
+    return result;
+  }
+  const {name, hits} = records;
   if (name.status === 'ambiguous') return { query, ...name, products: [] };
   const products = [...new Map(hits.map(p => [String(p.sku), medicationFacts(p)])).values()];
   const brazil = scope === 'brazil' ? await brazilianPresentations(query, name, hits[0]) : undefined;

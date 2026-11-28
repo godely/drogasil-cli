@@ -22,7 +22,7 @@ Usage:
   drogasil search <query> [--limit N] [--page N] [--json]
   drogasil product <sku> [<sku>...] [--json]
   drogasil stock <sku> (--lat LAT --lon LON | --cep CEP [--max-branches N]) [--min-qty N | --all] [--expand] [--json]
-  drogasil stores [--json]
+  drogasil stores [--cep CEP | --lat LAT --lon LON] [--json]
 
 Options:
   --json          Print the raw API response instead of a table

@@ -12,9 +12,58 @@ export const options = { cep: { type: 'string' }, lat: { type: 'string' }, lon: 
   expand: { type: 'boolean' }, store: { type: 'string' }, ...Object.fromEntries(['quantity', 'brand', 'generic', 'sku', 'brand-only', 'include-generics'].map(k =>
     [k, { type: 'string', multiple: true }])) };
 
-const issues = { no_reference: 'Apresentação não encontrada', conflicting_release: 'Confirme o tipo de liberação',
-  ambiguous: 'Qual apresentação?', presentation_options: 'Qual apresentação?', preference_unavailable: 'Preferência indisponível',
-  catalog_lookup_failed: 'Falha na consulta ao catálogo' };
+const missingPack = 'Não encontrei a apresentação pedida no catálogo consultado. O estoque dessa embalagem ficou sem confirmação.';
+const catalogNotes = {
+  no_match: missingPack, no_reference: missingPack, unknown_sku: missingPack,
+  requested_brand_not_found: 'Não encontrei a apresentação da marca ou fabricante solicitado no catálogo consultado. O estoque dessa embalagem ficou sem confirmação.',
+  selected_presentation_unverified: 'Não consegui confirmar a apresentação escolhida nesta consulta. O estoque dessa embalagem ficou sem confirmação.',
+  preference_unavailable: 'Nenhuma opção verificada atende à preferência informada.',
+  conflicting_release: 'Confirme o tipo de liberação.',
+  ambiguous: 'Qual apresentação?', presentation_options: 'Qual apresentação?', choose_reference: 'Qual apresentação?',
+  catalog_lookup_failed: 'Falha na consulta ao catálogo. O estoque ficou sem confirmação.',
+  source_failed: 'A consulta à rede falhou.',
+};
+
+export function purchaseCatalogNotice(table) {
+  if (table.comparisonOptions?.length) {
+    const out = [table.requestedBrand.status==='listed'
+      ? 'Genéricos com apresentação documentada para comparar com '+table.requestedBrand.name+':'
+      : 'A busca não encontrou a caixa de ' + table.requestedBrand.name + ' nessa rede. Para comparar a apresentação:'];
+    for (const row of table.comparisonOptions) {
+      const price = formatPrice(row.currentPrice) || 'preço não informado';
+      const pickup = row.closestQuotedPickup ?? row.methods?.find(m=>m.channel==='pickup-in-point' && m.pickupPointId);
+      let note = '';
+      if (row.localStatus === 'available' && pickup) {
+        note = ' · retirada de ' + row.requestedQuantity + (row.requestedQuantity===1?' caixa em ':' caixas em ') + (pickup.branch || 'filial indicada pela rede');
+        if (row.closestQuotedPickup) note += ' ' + formatKm(pickup.distanceKm);
+      } else if (row.localStatus) {
+        note = row.localStatus === 'unavailable' || row.pickupAtStore === 'not_offered' ? ' · retirada não oferecida' : ' · retirada sem confirmação';
+      }
+      out.push('• ' + row.name + ' (Genérico) · ' + price + note);
+    }
+    if (table.comparisonStatus==='partial' || table.comparisonQuoteStatus==='partial') out.push('A consulta à rede ficou incompleta.');
+    out.push('A Anvisa orienta que um genérico não substitui diretamente um similar prescrito. ' + table.registeredPresentation.guidanceUrl);
+    return out.join('\n');
+  }
+  if (table.requestedBrand?.status==='listed') {
+    if (table.comparisonStatus==='source_failed' || table.comparisonStatus==='partial') return 'A consulta aos genéricos ficou incompleta.';
+    if (table.comparisonStatus==='unverified_reference_presentation') return 'Os detalhes disponíveis não confirmam a mesma apresentação para comparar um genérico.';
+    if (table.comparisonStatus==='no_verified_generic') return 'A busca não confirmou genéricos com a mesma apresentação.';
+  }
+  if (table.comparisonStatus === 'unverified_reference_presentation') {
+    return 'A busca não encontrou a caixa de ' + table.requestedBrand.name + ' nessa rede. Os dados disponíveis não confirmam a mesma apresentação para comparar um genérico. O estoque ficou sem confirmação.';
+  }
+  if (table.status === 'no_match' && table.requestedBrand?.status === 'no_exact_catalog_match') {
+    return 'A busca não encontrou a caixa de ' + table.requestedBrand.name +
+      ' no catálogo da rede. Também não consegui confirmar um genérico com a mesma apresentação. O estoque ficou sem confirmação.';
+  }
+  if (['choose_reference', 'ambiguous'].includes(table.status) && table.referenceCatalog === 'drogasil' && table.presentationChoices?.length) {
+    return ['Qual destas apresentações você procura?', ...table.presentationChoices.map(name => '• ' + name),
+      'As apresentações vêm do catálogo de referência da Drogasil. A disponibilidade na farmácia escolhida depende de qual você procura.'].join('\n');
+  }
+  if (table.status === 'choose_manufacturer' && table.brands?.length) return 'Qual fabricante você prefere? ' + table.brands.join(' ou ') + '?';
+  return catalogNotes[table.status];
+}
 
 export function renderPurchase(result) {
   if (result.status === 'needs_generic_preference') {
@@ -23,7 +72,7 @@ export function renderPurchase(result) {
   }
   const out = [];
   for (const t of result.tables) {
-    out.push(t.label + '. ' + t.query + (t.quantity > 1 ? ' × ' + t.quantity : '') + (t.selectedSku ? ' · SKU ' + t.selectedSku : ''));
+    out.push(t.label + '. ' + (/^\d+$/.test(t.query) ? 'Produto solicitado' : t.query) + (t.quantity > 1 ? ' × ' + t.quantity : ''));
     const requested = new Set(t.requestedBrandSkus);
     const notes = [['unavailable', 'Sem estoque suficiente'], ['unknown', 'Estoque desconhecido'], ['failed', 'Falha na consulta de estoque']];
     function showNotes(brandFirst) {
@@ -42,9 +91,9 @@ export function renderPurchase(result) {
       t.rows.map(p => [p.option ?? '—', p.name, p.type, p.store?.name ?? '—', formatKm(p.store?.distanceKm) || '—',
         formatPrice(p.referencePriceBRL) || 'Não informado', p.store?.quantity ?? 'Desconhecida'])));
     showNotes(false);
-    if (issues[t.status]) out.push(issues[t.status]);
-    if (t.status === 'choose_manufacturer') out.push('Qual fabricante você prefere? ' + t.brands.join(' ou ') + '?');
-    if (t.candidates?.length) out.push(table(['SKU', 'Medicamento', 'Tipo'], t.candidates.map(p => [p.sku, p.name, p.type])));
+    const notice = purchaseCatalogNotice(t);
+    if (notice) out.push(notice);
+    if (t.candidates?.length) out.push(table(['Medicamento', 'Tipo'], t.candidates.map(p => [p.name, p.type])));
     if (t.nameCandidates?.length) out.push(t.nameCandidates.join(', '));
     if (t.missingFields) out.push('Equivalência não verificada. Campos ausentes: ' + t.missingFields.join(', '));
     if (t.needsSelection) out.push('Escolha uma apresentação para o plano.');

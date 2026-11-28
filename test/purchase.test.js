@@ -235,10 +235,35 @@ test('a chosen ingredient pack is one shopping line across manufacturers', async
   assert.deepEqual(multi.plans[0].unfilled, ['A']);
 });
 
+test('a basket can use a named ingredient when every matching title and composition verifies the same requested pack', async t => {
+  const {products} = fixture(t);
+  for (const product of products.slice(0, 2)) product.filters = {};
+  const result = await planPurchase(['Example 1mg 10 comprimidos', 'Beta 1mg'], {origin,includeBranchChoices:true});
+  assert.equal(result.tables[0].matchBasis, 'direct_requested_pack');
+  assert.equal(result.tables[0].needsSelection, undefined);
+  assert.equal(result.status, 'complete');
+  assert.ok(result.plans.some(plan => plan.stopCount === 1 && !plan.unfilled.length));
+  assert.ok(result.branchChoices[0].length);
+});
+
 test('a regional planner can reuse all eligible branches, coordinates and stock checks',async t=>{
   const {calls}=fixture(t);
   const r=await planPurchase(['Alpha 1mg','Beta 1mg'],{origin,includeBranchChoices:true});
   const b=r.branchChoices[1];
   assert.deepEqual(b.map(({store})=>[store.id,store.quantity,store.coordinates.longitude]),[['2',3,0.02],['3',2,0.03]]);
   assert.equal(new Set(calls).size,calls.length);
+});
+
+test('counter output preserves an unresolved pack and accepts a numeric selection silently',()=>{
+  const table={label:'A',query:'Gotas, frasco de 30 mL',status:'no_reference',selectedSku:'8765432',
+    quantity:1,rows:[],unavailable:[],unknown:[],failed:[]};
+  const result={scope:'nearest',searchComplete:true,tables:[table],plans:[]};
+  const text=renderPurchase(result);
+  assert.match(text,/frasco de 30 mL[\s\S]*catálogo consultado[\s\S]*estoque.*sem confirmação/i);
+  assert.doesNotMatch(text,/SKU|8765432|sem estoque/i);
+  const ambiguous={...table,query:'8765432',status:'presentation_options',candidates:[
+    {sku:'8765432',name:'Produto 20 mL',type:'Genérico'},{sku:'11223344',name:'Produto 30 mL',type:'Genérico'}]};
+  const choices=renderPurchase({...result,tables:[ambiguous]});
+  assert.match(choices,/Qual apresentação\?[\s\S]*Produto 20 mL[\s\S]*Produto 30 mL/);
+  assert.doesNotMatch(choices,/8765432|11223344|SKU/);
 });

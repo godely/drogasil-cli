@@ -7,22 +7,37 @@ export function normalize(value) {
 // Packaging prose can sit between the dosage and the count in a user's query.
 export function catalogQuery(value) {
   return value.replace(/\bem\s+(?=gotas?\b)/giu, '')
+    .replace(/\b(?:por\s+via|via)\s+(?=sub[- ]?lingua(?:l|is)\b)|\bem\s+(?=comprimidos?\s+sub[- ]?lingua(?:l|is)\b)/giu, '')
     .replace(/\bfrasco\s+(?:de|com)\s+(?=\d+(?:[.,]\d+)?\s*m[lL]\b)/gu, (phrase, offset, text) =>
       /\d\s*$/.test(text.slice(0, offset)) ? phrase : '')
     .replace(/\s*,?\s*\b(?:(?:caixa|embalagem)\s+(?:de|com)|com)\s+(?=\d+\s+(?:comprimidos?|c[áa]psulas?)\b)/giu, ' ').trim();
 }
 
+export const normalizeSublingual = value => value.replace(/\bsub[- ]?lingua(?:l|is)\b/giu, 'sublingual');
+
 export function presentationTokens(value) {
-  return normalize(value).replace(/\s*\/\s*/g, '/')
+  return normalizeSublingual(normalize(value)).replace(/\s*\/\s*/g, '/')
     .replace(/\b(\d+)\s+(comprimidos?|capsulas?|frascos?)\b/g, '$1$2')
     .replace(/(comprimido|capsula|frasco)s\b/g, '$1')
     .match(/[\p{L}\d.]+(?:\/[\p{L}\d.]+)?/gu) ?? [];
 }
 
-// Some oral drops are indexed as "solução oral". Broaden retrieval only;
-// the original request must still match the product's own presentation.
-export function dropSearchTerms(query) {
-  return query.replace(/\bgotas\b/giu, ' ').replace(/\s+/g, ' ').trim();
+// Full-text search can omit fields that identify drops and sublingual tablets.
+// Remove these terms for retrieval, then verify the entire request on each pack.
+export function presentationSearchTerms(query) {
+  return query.replace(/\b(?:gotas|sub[- ]?lingua(?:l|is))\b/giu, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export const requestsSublingual = query => /\bsub[- ]?lingua(?:l|is)\b/iu.test(query);
+
+// A category may list several administration routes shared by unrelated packs.
+// The title, a specific form, or a single declared route can identify this pack.
+export function documentedSublingual(title, forms, routes) {
+  if (requestsSublingual(title)) return true;
+  const labels = [...new Set([forms].flat().filter(Boolean).map(normalize))];
+  if (labels.length === 1 && requestsSublingual(labels[0])) return true;
+  const declared = [...new Set([routes].flat().filter(Boolean).map(normalize))];
+  return declared.length === 1 && /^(?:(?:uso|via) )?sublingual$/.test(declared[0]);
 }
 
 export function requestsDrops(query) {
@@ -46,8 +61,19 @@ export function documentedDrops(product) {
 
 export function matchesRequest(product, query) {
   const requested = presentationTokens(query);
-  const evidence = presentationTokens([product.name, product.filters?.['Forma farmacêutica'],
-    product.filters?.['Via de administração'], product.details?.quantidade, ...(product.details?.dosageList ?? [])].join(' '));
+  const fields = [product.name, product.filters?.['Forma farmacêutica'], product.details?.quantidade,
+    ...(product.details?.dosageList ?? [])];
+  const route = product.filters?.['Via de administração'];
+  if (requestsSublingual(query)) {
+    if (!documentedSublingual(product.name, product.filters?.['Forma farmacêutica'], route) &&
+        !requestsSublingual(product.details?.quantidade)) return false;
+    fields.push('sublingual');
+  } else fields.push(route);
+  const evidence = fields.flat().flatMap(presentationTokens);
+  for (const word of [...evidence]) {
+    const count = /^\d+(comprimido|capsula|frasco)$/.exec(word);
+    if (count) evidence.push(count[1]);
+  }
   if (requested.includes('gotas') && documentedDrops(product)) evidence.push('gotas');
   const packVolumes = presentationTokens(product.details?.quantidade).filter(t => /^\d+(?:\.\d+)?ml$/.test(t));
   return requested.length > 0 && requested.every(term =>

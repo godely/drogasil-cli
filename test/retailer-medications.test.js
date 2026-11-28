@@ -17,10 +17,28 @@ test('accepts identity evidence, rejects lookalikes, conflicting composition, an
   for(const title of ['Hidromorfina 10 mg','X sem morfina 10 mg','Morfina 10 mg/ml','Morfina 110mg']) assert.equal(match(title),undefined);
   assert.equal(match('Morfina 10mg',['Tramadol']),undefined);
 });
-test('declining a term returns refinements from verified products without repeating the term', async () => {
-  const src=medicationCatalog({}, {intentFor:q=>medicationIntent(q,index),searchVerified:async()=>[{name:'Dimorf 10mg 50 comprimidos'}]});
+test('declining a name does not look up or offer another dose of that medication', async () => {
+  const src=medicationCatalog({}, {intentFor:q=>medicationIntent(q,index),searchVerified:assert.fail});
   assert.deepEqual(await src.search('morfi'),[]);
-  assert.deepEqual(await src.alternatives('morfi','morfina',7),['morfina 10 mg']);
+  assert.deepEqual(await src.alternatives('morfi','morfina',7),[]);
+});
+
+test('route and packaging prose retain the presentation until the name is confirmed', async () => {
+  const names = nameIndex([[], ['Rivotril']]);
+  const intentFor = query => medicationIntent(query, async () => names);
+  const choose = query => nameChoices(query, {intentFor, resolve: async term => resolveName(term, names)});
+  const catalog = medicationCatalog({}, {intentFor, searchVerified: assert.fail});
+  for (const suffix of ['via sublingual 0.25 mg', 'por via sub-lingual 2 mg', 'caixa com 30 comprimidos', 'embalagem de 60 capsulas']) {
+    const query = 'rivortil ' + suffix;
+    const corrected = 'rivotril ' + suffix;
+    assert.deepEqual(await choose(query), [corrected]);
+    assert.deepEqual(await choose(corrected), []);
+    assert.deepEqual(await catalog.search(query), []);
+    assert.deepEqual(await catalog.alternatives(query, corrected, 7), []);
+  }
+  for (const line of ['via lactea', 'caixa organizadora', 'embalagem para presente']) {
+    assert.deepEqual(await choose('rivortil ' + line), []);
+  }
 });
 
 test('an ambiguous prefix retains exact catalog brands and ingredients with the original presentation', async () => {
@@ -43,4 +61,50 @@ test('a name index outage keeps plausible DCB choices available', async () => {
   const offline = async () => {throw new Error('catalog unavailable');};
   const choices = await nameChoices('predniso', {intentFor: term => medicationIntent(term, offline), resolve: offline});
   assert.ok(choices.includes('prednisona') && choices.includes('prednisolona'));
+});
+
+test('strong misspellings propose documented names and retain strength, route and pack for confirmation', async () => {
+  const names = nameIndex([
+    ['Hemitartarato de Zolpidem', 'Amoxicilina', 'Clonazepam', 'Dipirona Sódica'],
+    ['Rivotril'],
+  ]);
+  const intentFor = query => medicationIntent(query, async () => names);
+  const choices = query => nameChoices(query, {intentFor, resolve: async term => resolveName(term, names)});
+  for (const [typed, expected] of [
+    ['rhibotriu sublingual', 'rivotril sublingual'],
+    ['zoupidenn 10 mg/ml 20 ml', 'zolpidem 10 mg/ml 20 ml'],
+    ['amokssissilina', 'amoxicilina'], ['klohnazepann', 'clonazepam'], ['dippirronnah', 'dipirona'],
+  ]) {
+    assert.deepEqual(await choices(typed), [expected]);
+    assert.deepEqual(await choices(expected), []);
+  }
+  assert.equal((await intentFor('zoupidenn')).kind, 'text');
+  assert.deepEqual(await choices('qzambote'), []);
+  assert.deepEqual(await choices('hidratante'), []);
+  assert.match(resolveName('zolpidem', names).filters, /Hemitartarato de Zolpidem/);
+  const catalog = medicationCatalog({}, {intentFor, searchVerified: () => assert.fail('searched before confirmation')});
+  assert.deepEqual(await catalog.search('rhibotriu'), []);
+});
+
+test('both catalog identities survive an equal phonetic distance', async () => {
+  const names = nameIndex([['Ribotril'], ['Rivotril']]);
+  const intentFor = query => medicationIntent(query, async () => names);
+  assert.deepEqual(await nameChoices('rhitotriuu', {intentFor, resolve: async t => resolveName(t, names)}),
+    ['ribotril', 'rivotril']);
+});
+
+test('a literal retail brand and product line can resolve a non-medication prefix',async()=>{
+  const rows=[
+    {brand:'Ever Care',name:'Descongestionante Nasal Spray Ever Care 50ml'},
+    {brand:'Ever Care',name:'Repelente Ever Care Spray 100ml'},
+    {brand:'Outra',name:'Kit para Spray Nasal Ever Care 50ml'},
+    {brand:'Ever Care',name:'Acessório para Spray Nasal Ever Care 50ml'},
+  ];
+  const intentFor=async query=>({kind:'text',name:'ever',suffix:query.slice(5),suggestions:['everolimo']});
+  const adapter=medicationCatalog({}, {intentFor,searchVerified:async intent=>rows.filter(r=>verifiedRow(r,intent))});
+  assert.deepEqual(await adapter.search('Ever Care spray nasal'),[rows[0]]);
+  assert.deepEqual(await adapter.search('Ever Care spray nasal 50 mL'),[rows[0]]);
+  for(const query of ['Ever Care spray nasal 100 mL','Ever Care spray nasal 2 mg','Ever 10mg','Ever']) {
+    assert.deepEqual(await adapter.search(query),[]);
+  }
 });

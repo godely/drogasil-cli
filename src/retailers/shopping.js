@@ -2,6 +2,7 @@ import { fold, resolveMedication } from '../api/medications.js';
 import { documentedDrops, matchesLabeledDropRequest, requestsDrops } from '../api/presentation-label.js';
 import { matchesDropListing } from './drop-listing.js';
 import { countedOffers } from './counted-offers.js';
+import { compareListedSimilar, compareRegisteredBrand } from './registered-packs.js';
 import { compareProducts, medicationType, samePack, searchProducts } from '../api/index.js';
 import { validBarcode as validGtin } from '../api/retail-prices.js';
 import { catalogType } from './catalog.js';
@@ -36,8 +37,12 @@ async function findDropOffers(retailer,query,source,reference,includeGenerics) {
     for (const row of await source.byGtin(code)) {
       if (!matchesDropListing(hit,row)) continue;
       const key = JSON.stringify([row.sku,row.sellerId]);
+      const ingredients = (hit.details?.activeIngredients ?? []).map(a=>a.description).filter(Boolean);
       offers.set(key,{...listed(row,retailer),role:original?'requested':'generic',
-        ...(original && {requestedTradeName:hit.brand, requestedReferenceTitle:hit.name}),matchBasis:'verified_drop_presentation_and_barcode'});
+        ...(selection.requestedIngredientName && ingredients.length && {activeIngredients:ingredients,
+          ingredientEvidence:{source:'drogasil',gtin:code,field:'details.activeIngredients.description'}}),
+        ...(original && !selection.requestedIngredientName && {requestedTradeName:hit.brand}),
+        ...(original && {requestedReferenceTitle:hit.name}),matchBasis:'verified_drop_presentation_and_barcode'});
     }
   }
   const products = [...offers.values()];
@@ -72,16 +77,50 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
     if (!discovery.length && referenceFailure) throw referenceFailure;
   }
   const distinct = [...new Set(discovery.map(row=>row.sku))];
-  if (!distinct.length) return {retailerId:retailer,status:exact?'unknown_sku':'no_match',products:[]};
+  if (!distinct.length) {
+    const result = {retailerId:retailer,status:exact?'unknown_sku':'no_match',products:[]};
+    if (exact || !includeGenerics || wantsDrops || !reference.compare) return result;
+    // A retailer can carry equivalent generics without selling the requested brand's pack.
+    // The reference establishes equivalence, and the retailer establishes each offer.
+    let equivalents;
+    try { equivalents = await reference.compare(query); }
+    catch { return {...result,status:'partial',issues:['reference_lookup_failed']}; }
+    const brand = equivalents.requestedBrandName;
+    if (!brand || !(fold(query)+' ').startsWith(fold(brand)+' ')) return result;
+    if (equivalents.status === 'ambiguous') {
+      const names = (equivalents.candidates ?? []).map(p => p.name?.trim()).filter(Boolean);
+      const presentationChoices = [...new Set(names)];
+      if (!presentationChoices.length) return {...result, status:'incomplete_presentation', missingFields:['reference_presentations']};
+      return {...result, status:'choose_reference', presentationChoices, referenceCatalog:'drogasil'};
+    }
+    if (equivalents.status !== 'matches') return result;
+    const requested = new Set((equivalents.requestedBrandSkus ?? []).map(String));
+    const originals = equivalents.products.filter(p => requested.has(String(p.sku)));
+    if (!originals.length) return result;
+    const missing = {...result,requestedBrand:{name:brand,status:'no_exact_catalog_match'}};
+    const comparison = await compareRegisteredBrand(retailer,originals,brand,source,query);
+    if (comparison) return {...missing,...comparison, status:
+      comparison.comparisonStatus === 'source_failed' ? 'source_failed' :
+      comparison.comparisonStatus === 'partial' ? 'partial' : comparison.comparisonOptions.length ? 'presentation_comparison' : 'no_match'};
+    return verifiedGenericOffers(missing,equivalents,source,new Set(originals.map(p=>String(p.eanCode))));
+  }
   if (distinct.length > 1) return {retailerId:retailer,status:'choose_reference',candidates:discovery.map(r=>listed(r,retailer)),
     guidance:'Use pharmacy_search for more presentations, then pass the chosen local SKU.'};
   const originals = exact || wantsDrops ? discovery : await source.product(distinct[0]);
-  const products = originals.map(row=>({...listed(row,retailer),role:'requested'}));
+  const products = originals.map(row=>{
+    // Hydrating a retailer SKU can replace the trade-brand field with the manufacturer.
+    // Carry the verified name across this second read only for the same local pack.
+    const found = discovery.find(p=>p.requestedTradeName && p.sku === row.sku &&
+      validGtin(p.gtin ?? '') && p.gtin === row.gtin);
+    return {...listed(row,retailer),role:'requested',...(found && {requestedTradeName:found.requestedTradeName})};
+  });
   const result = {retailerId:retailer,status:'matches',products};
   if (!originals.length) return {...result,status:'unknown_sku'};
   if (!includeGenerics) return result;
   const [anchor] = originals;
   if (!validGtin(anchor.gtin??'') || originals.some(r=>r.gtin!==anchor.gtin)) return {...result,status:'incomplete_presentation',missingFields:['verified_barcode']};
+  const registered = await compareListedSimilar(retailer, originals, query, source);
+  if (registered) return {...result,...registered};
   let equivalents;
   try {
     const refs=(await reference.byGtin(anchor.gtin)).filter(p=>samePack(anchor,{name:p.name,gtin:String(p.eanCode)}));
@@ -90,7 +129,11 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
   } catch { return {...result,status:'partial',issues:['reference_lookup_failed']}; }
   if (equivalents.status!=='matches') return {...result,status:'incomplete_presentation',
     missingFields:equivalents.missingFields??['verified_equivalence']};
-  const checked = new Set([anchor.gtin]);
+  return verifiedGenericOffers(result, equivalents, source, new Set([anchor.gtin]));
+}
+
+async function verifiedGenericOffers(result, equivalents, source, checked) {
+  const {retailerId:retailer, products} = result;
   const generics = [], issues=[];
   for (const hit of equivalents.products) {
     const gtin=String(hit.eanCode??'');
@@ -106,14 +149,16 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
     } catch {issues.push({gtin,status:'source_failed'});}
   }
   const byPrice=(a,b)=>(a.currentPrice??Infinity)-(b.currentPrice??Infinity) || String(a.sku).localeCompare(String(b.sku));
-  return {...result,status:issues.length?'partial':'matches',issues,
+  return {...result,status:issues.length?'partial':generics.length || products.length?'matches':'no_match',issues,
     products:[...products.sort(byPrice),...generics.sort(byPrice)], scope:'equivalents_in_reference_catalog'};
 }
 
 // An exact-SKU basket is a fulfillment check. Each quantity is an order quantity.
-export async function retailerBasket({retailer, items, zipcode}, source) {
+export async function retailerBasket({retailer, items, zipcode, coordinates}, source) {
+  if (zipcode != null && coordinates != null) throw new TypeError('Informe apenas uma origem');
+  const origin = coordinates ?? zipcode;
   const base = {retailerId:retailer};
-  if (source.serves && !await source.serves(zipcode)) return {...base,status:'outside_local_directory',items:[]};
+  if (source.serves && !await source.serves(origin)) return {...base,status:'outside_local_directory',items:[]};
   const chosen=[], pending=[];
   const catalog = new Map();
   for (const {sku, sellerId, quantity} of items) {
@@ -133,9 +178,28 @@ export async function retailerBasket({retailer, items, zipcode}, source) {
     } else chosen.push({offer:rows[0],quantity});
   }
   if (pending.length) return {...base,status:'unresolved_items',pending};
-  const quotes=await source.basket(chosen,zipcode);
-  const available=quotes.filter(q=>q.localStatus==='available');
-  const complete=available.length===quotes.length && quotes.length>0;
+  const byOffer = new Map();
+  for (const {offer, quantity} of chosen) {
+    const key = JSON.stringify([offer.sku, offer.sellerId]);
+    const total = (byOffer.get(key)?.quantity ?? 0) + quantity;
+    if (!Number.isSafeInteger(total) || total < 1) throw new TypeError('Invalid combined quantity');
+    byOffer.set(key, {offer, quantity:total});
+  }
+  const requested = [...byOffer.values()];
+  const remaining = [...await source.basket(requested, origin)];
+  const quotes = [];
+  let fullyQuoted = requested.length > 0;
+  for (const {offer, quantity} of requested) {
+    const index = remaining.findIndex(row => row.sku === offer.sku && row.sellerId === offer.sellerId
+      && Number.isSafeInteger(row.requestedQuantity) && row.requestedQuantity > 0 && row.requestedQuantity <= quantity);
+    if (index < 0) { fullyQuoted = false; continue; }
+    const [quote] = remaining.splice(index, 1);
+    quotes.push(quote);
+    if (quote.requestedQuantity !== quantity) fullyQuoted = false;
+  }
+  if (remaining.length) fullyQuoted = false;
+  const available = quotes.filter(q => q.localStatus === 'available');
+  const complete = fullyQuoted && available.length === requested.length;
   const pickupIds=q=>new Set(q.methods.filter(m=>m.channel==='pickup-in-point' && m.pickupPointId).map(m=>m.pickupPointId));
   const shared=new Map();
   if (complete) {
@@ -146,8 +210,12 @@ export async function retailerBasket({retailer, items, zipcode}, source) {
       }
     }
   }
-  const status=complete?'fulfillable':available.length?'partial':
-    quotes.every(q=>q.localStatus==='unavailable')?'unavailable':'unconfirmed';
+  const failures = quotes.filter(q => q.localStatus === 'lookup_failed').length;
+  let status = 'unconfirmed';
+  if (complete) status = 'fulfillable';
+  else if (fullyQuoted && failures === quotes.length) status = 'source_failed';
+  else if (failures || available.length) status = 'partial';
+  else if (fullyQuoted && quotes.every(q => q.localStatus === 'unavailable')) status = 'unavailable';
   return {...base,status,
     items:quotes.map(q=>listed(q,retailer)),commonPickupPoints:[...shared.values()],
     deliveryForEveryItem:complete && quotes.every(q=>q.methods.some(m=>m.channel==='delivery')),

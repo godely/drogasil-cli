@@ -41,6 +41,18 @@ for (const [label, args, expected, fixture] of [
 }
 const strict = process.argv.slice(4).some(flag => flag === '--strict' || flag === '--candidate');
 if (strict) {
+  const directoryArgs = ['stores','--lat','1','--lon','1'];
+  const directory = run([...directoryArgs,'--json'],'directory');
+  assert.equal(directory.status,0,name+' directory exit');
+  const branches = JSON.parse(directory.stdout);
+  assert.deepEqual(branches.map(row => String(row.id)),['1','2'],name+' directory order');
+  assert.equal(branches[0].distanceKm,0);
+  assert.ok(branches[1].distanceKm > 0);
+  assert.match(JSON.stringify(branches[0].openingHours),/08:00/);
+  const human = run(directoryArgs,'directory');
+  assert.equal(human.status,0);
+  assert.match(human.stdout,/Centro 1/);
+  assert.match(human.stdout,/20:00/);
   const optionCases = [
     [['compare', '1', '--store', 'nearest'], /--store.*nearest.*(?:location|origin)/i],
     [['compare', '1', '--expand'], /--expand.*(?:location|origin)/i],

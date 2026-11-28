@@ -121,15 +121,18 @@ const STORES_PAGE_SIZE = 3000;
  * `id` matches `branch.id` in the stock queries.
  * @returns {Promise<Array<{ id: number, storeName: string, address: { street: string, number: string, cityId: number, latitude: number, longitude: number } }>>}
  */
-export async function listStores() {
+export async function listStores({ detailed = false } = {}) {
+  const fields = detailed ? 'fantasyName labelAttendance' : '';
+  const addressFields = detailed ? 'regionId cityName neighborhood postcode' : '';
   const items = [];
   for (let page = 1; ; page++) {
     const data = await gql(
       `{ stores(input: { currentPage: ${page}, pageSize: ${STORES_PAGE_SIZE} }) {
-          items { id storeName telephone telephoneAreaCode address { street number cityId latitude longitude } }
+          items { id storeName telephone telephoneAreaCode ${fields} address { street number cityId latitude longitude ${addressFields} } }
         } }`,
     );
-    const batch = data?.stores?.items ?? [];
+    const batch = data?.stores?.items;
+    if (!Array.isArray(batch)) throw new GraphQLError([{ message: 'Unexpected store directory response' }]);
     items.push(...batch);
     if (batch.length < STORES_PAGE_SIZE) return items;
   }

@@ -25,7 +25,7 @@ Or run in place with `node ./bin/drogasil.js …`.
 | `drogasil product <sku>…` | Algolia | Direct SKU lookup |
 | `drogasil stock <sku> --lat --lon` | GraphQL `getNearbyStockByLatLong` | Nearby stores with stock, nearest first |
 | `drogasil stock <sku> --cep <cep>` | GraphQL `getNearbyStockByZipCode` | Same, from a postal code |
-| `drogasil stores` | GraphQL `stores` | Full store directory with coordinates |
+| `drogasil stores` | GraphQL `stores` | Directory with branch names, published opening hours and contacts. Coordinates sort by straight-line distance. A CEP filters by the neighborhood or city reported by Drogasil |
 
 Every command accepts `--json` for the raw API shape and `--help` for its own usage.
 
@@ -215,3 +215,5 @@ python3 scripts/package-plugin.py --app-id "$DROGASIL_APP_ID" --output /tmp/drog
 [Bulk catalog snapshots, scheduled delivery and spreadsheet exports](docs/catalog-snapshots.md)
 
 The medication-catalog library entry point shares medication name resolution and evidence checks with sibling retailer adapters. It uses the ingredient and brand index plus normalized denominations from the [July 2026 ANVISA DCB workbook](https://bibliotecadigital.anvisa.gov.br/jspui/bitstream/anvisa/21318/1/2-Lista%20DCB%20consolidada%20jul%202026.xlsx). Regenerate the vocabulary with `python3 scripts/build-dcb-names.py workbook.xlsx src/data/dcb-names.txt`.
+
+[Registered pack comparisons and CMED source](docs/registered-packs.md)

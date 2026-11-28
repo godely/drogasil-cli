@@ -36,6 +36,9 @@ test('a declined dose rejects other presentations of that name and keeps distinc
   const terms = ['loratadina','loratadina comprimidos','loratadina 5 mg','desloratadina','Desloratadina'];
   assert.deepEqual(alternativeNames(terms,'loratadnia 10 mg',['loratadina 10 mg']),['desloratadina']);
   assert.deepEqual(alternativeNames(terms.slice(0,3),'loratadnia',['loratadina']),[]);
+  for (const suffix of ['via sublingual 10 mg', 'por via sub-lingual', 'caixa com 30 comprimidos', 'liberação prolongada']) {
+    assert.deepEqual(alternativeNames(terms, 'loratadnia '+suffix, ['loratadina '+suffix]), ['desloratadina']);
+  }
 });
 
 test('explicit codes and free text remain unchanged without a prompt', async () => {

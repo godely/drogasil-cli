@@ -2,6 +2,30 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { countedOffers } from '../src/retailers/counted-offers.js';
 import { countedPack, directCountedListing } from '../src/api/counted-pack.js';
+import { samePack } from '../src/api/retail-prices.js';
+
+test('a short catalog unit label can contradict otherwise identical titles and barcodes', () => {
+  const box = {gtin:'4006381333931', name:'Paracetamol 750 mg 20 comprimidos'};
+  for (const quantity of ['10un', '10 un.', '10 und', '10 unid.', '10 unidades', '10 cápsulas']) {
+    assert.equal(samePack(box, {...box, facts:{Quantidade:[quantity]}}), false, quantity);
+  }
+  assert.ok(samePack(box, {...box, facts:{Quantidade:['20un']}, productUrl:'https://example.org/caixa-10'}));
+});
+
+test('a manufacturer-qualified request keeps only the verified maker and presentation', async () => {
+  const row = {sku:'p', sellerId:'1', name:'Paracetamol 750mg 10 comprimidos', manufacturer:'Medquímica',
+    activeIngredients:['paracetamol'], facts:{Quantidade:['10un'], Apresentação:['Comprimido'],
+      'Formas de Administração':['Via Oral'], 'Tipo de Liberação':['Liberação imediata']}};
+  const rows = [row, {...row, sku:'b', manufacturer:'Outro'}, {...row, sku:'c',facts:{Quantidade:['20un']}},
+    {...row, sku:'d',facts:{'Tipo de Liberação':['Prolongada']}},
+    {...row, sku:'e',facts:{'Formas de Administração':['Sublingual']}}];
+  for (const suffix of ['Medquímica 750 mg 10 comprimidos','da Medquímica, 750 mg, caixa de 10 comprimidos',
+    '750 mg 10 comprimidos da Medquímica']) {
+    const result = await countedOffers('paguemenos', 'paracetamol '+suffix, {search:async()=>rows},
+      {kind:'ingredient',name:'paracetamol',suffix}, {});
+    assert.deepEqual(result.products.map(p=>p.sku), ['p'], suffix);
+  }
+});
 
 test('direct named packs require independent strength and ingredient evidence', () => {
   const dose = { description: 'Exemplo', dosageValue: '2,5', unitOfMeasurement: { name: 'MG' } };
@@ -9,6 +33,12 @@ test('direct named packs require independent strength and ingredient evidence', 
   const requested = countedPack('2,5 mg caixa com 20 comprimidos');
   const matches = p => directCountedListing(p, 'Exemplo', requested);
   assert.ok(matches(product));
+  for (const form of ['Em Comprimido', 'Em comprimidos revestidos']) {
+    assert.ok(matches({...product, filters:{'Forma farmacêutica':form}}), form);
+  }
+  for (const form of ['Em cápsula', 'Em comprimido sublingual']) {
+    assert.equal(matches({...product, filters:{'Forma farmacêutica':form}}), false, form);
+  }
   for (const route of ['Uso oral', 'Via oral', 'Oral']) {
     assert.ok(matches({...product, filters:{'Via de administração':route}}), route);
   }

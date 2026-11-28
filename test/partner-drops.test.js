@@ -13,6 +13,20 @@ const reference={drops:async (_query,generics)=>{
 }};
 const lookup=rows=>retailerComparison(query,{byGtin:async gtin=>{assert.equal(gtin,code);return rows;},search:async()=>[]},reference);
 
+test('ingredient-selected drops retain the verified composition and do not claim a brand preference',async()=>{
+  const direct={...hit,details:{...hit.details,activeIngredients:[{description:'Substância X'}]}};
+  const selection={status:'matches',requestedIngredientName:'Substância X',referenceSkus:['1'],products:[direct,{...direct,sku:2}]};
+  let lookups=0;
+  const result=await retailerComparison({...query,query:'Substância X em gotas'},{
+    byGtin:async()=>{lookups++;return [row];},search:async()=>[],
+  },{drops:async()=>selection});
+  assert.equal(lookups,1);
+  assert.equal(result.status,'matches');
+  assert.deepEqual(result.products[0].activeIngredients,['Substância X']);
+  assert.equal(result.products[0].ingredientEvidence.gtin,code);
+  assert.equal(result.products[0].requestedTradeName,undefined);
+});
+
 test('branded drops reach the retailer’s own oral solution when its strength omits /mL',async()=>{
   const r=await lookup([row]);
   assert.equal(r.status,'matches');

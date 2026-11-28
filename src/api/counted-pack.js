@@ -6,6 +6,18 @@ const normalized = text => fold(text ?? '').replace(/(\d),(\d)/g, '$1.$2');
 const dosePattern = /\b(\d+(?:\.\d+)?)\s*(mcg|mg|g|ui)\b/g;
 const countPattern = /\b(\d+)\s*(comprimido|capsula)s?\b/g;
 
+export function consistentPackCount(name, field) {
+  const counts = [...normalized(name).matchAll(countPattern)];
+  if (counts.length !== 1) return true;
+  const [, count, form] = counts[0];
+  return [field].flat().every(value => {
+    const quantity = normalized(value);
+    const units = quantity.match(/^(\d+)\s*(?:un(?:d|id|idade)?s?\.?)?$/);
+    return (!units || Number(units[1]) === Number(count)) &&
+      [...quantity.matchAll(countPattern)].every(m => Number(m[1]) === Number(count) && m[2] === form);
+  });
+}
+
 export function countedPack(suffix) {
   const match = normalized(suffix).match(/^(\d+(?:\.\d+)?)\s*(mcg|mg|g|ui)\s*[, -]*\s*(?:(?:caixa|embalagem)\s+(?:de|com)\s+|com\s+)?(\d+)\s*(comprimido|capsula)s?$/);
   if (!match || Number(match[1]) <= 0 || Number(match[3]) <= 0) return null;
@@ -25,7 +37,8 @@ export function directCountedListing(product, ingredient, request) {
 }
 
 export function matchesCountedLabel(request, name, fields = {}) {
-  const title = normalized(name), pack = normalized(fields.pack), form = normalized(fields.form);
+  const title = normalized(name), pack = normalized(fields.pack);
+  const form = normalized(fields.form).replace(/^em\s+/, '');
   const route = normalized(fields.route);
   const evidence = [title, pack, form, normalized(fields.brand)].join(' ');
   if (route && !/^(?:(?:uso|via)\s+)?oral$/.test(route)) return false;
@@ -36,7 +49,6 @@ export function matchesCountedLabel(request, name, fields = {}) {
   const counts = [...title.matchAll(countPattern)];
   return doses.length === 1 && Number(doses[0][1]) === request.strength && doses[0][2] === request.unit
     && counts.length === 1 && Number(counts[0][1]) === request.count && counts[0][2] === request.form
-    && (!/^\d+$/.test(pack) || Number(pack) === request.count)
-    && [...pack.matchAll(/(\d+)\s*unidades?\b/g)].every(m => Number(m[1]) === request.count)
-    && [...pack.matchAll(countPattern)].every(m => Number(m[1]) === request.count && m[2] === request.form);
+    && consistentPackCount(title, fields.pack)
+    && [...pack.matchAll(/(\d+)\s*unidades?\b/g)].every(m => Number(m[1]) === request.count);
 }

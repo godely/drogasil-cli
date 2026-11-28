@@ -4,13 +4,28 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+import time
+
+
+def enable_wal(db):
+    # Concurrent first connections can receive SQLITE_BUSY immediately while
+    # upgrading the journal even when the connection has a busy timeout.
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            db.execute("PRAGMA journal_mode=WAL").fetchone()
+            return
+        except sqlite3.OperationalError as exc:
+            if str(exc) != "database is locked" or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
 
 args = json.load(sys.stdin)
 path = Path(os.environ.get("DROGASIL_SNAPSHOT_DB", Path.home() / ".local/share/drogasil/snapshots.sqlite3"))
 os.umask(0o077)
 path.parent.mkdir(parents=True, exist_ok=True)
 with sqlite3.connect(path, timeout=15) as db:
-    db.execute("PRAGMA journal_mode=WAL")
+    enable_wal(db)
     db.execute("CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, state TEXT, started TEXT, pid INTEGER, error TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS rows (run TEXT, sku TEXT, data TEXT, PRIMARY KEY(run,sku))")
     db.execute("CREATE TABLE IF NOT EXISTS stats (run TEXT PRIMARY KEY, data TEXT)")

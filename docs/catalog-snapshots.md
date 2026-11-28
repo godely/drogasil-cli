@@ -14,7 +14,7 @@ The default SQLite database is under the server user's local data directory. Ove
 
 | Actor capability | Implementation and limits |
 |---|---|
-| Ordered search and attribution | 1–10 inputs, up to 150 characters each. First query wins on duplicate SKUs. Default 20 items, maximum 1,000 and at most 30 pages per query. |
+| Ordered search and attribution | Omit the queries to collect up to 20 products for `paracetamol`. An explicit list must contain 1–10 nonblank queries of up to 150 characters each. First query wins on duplicate SKUs. Maximum 1,000 items and at most 30 pages per query. |
 | Product and price fields | SKU, name, brand, categories and path, canonical URL, BRL selling/list prices, reported discount, stock signal and availability, source query and URL, UTC time. Missing source values remain null. |
 | Storage and bounded reads | Durable SQLite rows per run, offsets, partial failure status and separate full-file export. |
 | Spreadsheet or warehouse | JSON preserves types. CSV and XLSX retain SKU as text. Import either spreadsheet format into Google Sheets. |
