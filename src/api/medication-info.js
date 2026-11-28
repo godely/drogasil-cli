@@ -2,7 +2,7 @@ import { getProductsBySku, searchProducts } from './algolia.js';
 import { resolveMedication, fold } from './medications.js';
 import { medicationType } from './product-info.js';
 import { brazilianPresentations, prescriptionInfo } from './regulatory-info.js';
-import { catalogQuery, documentedDrops, dropSearchTerms, labelDescription, matchesRequest, requestsDrops } from './presentation-label.js';
+import { catalogQuery, documentedDrops, presentationSearchTerms, labelDescription, matchesRequest, requestsDrops, requestsSublingual } from './presentation-label.js';
 
 const attributes = ['eanCode', 'sku', 'name', 'url', 'isActive', 'brand', 'details', 'filters.Forma farmacêutica',
   'filters.Via de administração', 'filters.Marca', 'filters.Tipo de medicamento', 'filters.Medicamentos genéricos',
@@ -68,7 +68,8 @@ export async function infoRecords(query) {
     const opts = { filters: name.filters ?? 'categories.id=532', hitsPerPage: 100, attributes };
     const drops = requestsDrops(query);
     const requested = catalogQuery(name.suffix);
-    const term = drops ? (name.filters ? '' : dropSearchTerms(requested)) : name.suffix;
+    const sublingual = requestsSublingual(query);
+    const term = drops || sublingual ? (name.filters ? '' : presentationSearchTerms(requested)) : name.suffix;
     const first = await searchProducts(term, opts);
     hits = first.hits.slice();
     for (let page = 1; page < first.nbPages; page++) {
@@ -82,6 +83,8 @@ export async function infoRecords(query) {
           details:{...product.details, dosageList:fact.ingredients.map(ingredient => ingredient.strength)}};
         return !requested || matchesRequest(evidence, requested);
       });
+    } else if (sublingual) {
+      hits = hits.filter(product => matchesRequest(product, requested));
     } else if (name.kind === 'text') {
       const terms = fold(query).split(/\s+/);
       hits = hits.filter(p => terms.every(term => fold(p.name).split(/[^\p{L}\d.,/]+/u).includes(term)));

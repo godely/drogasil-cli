@@ -36,8 +36,12 @@ async function findDropOffers(retailer,query,source,reference,includeGenerics) {
     for (const row of await source.byGtin(code)) {
       if (!matchesDropListing(hit,row)) continue;
       const key = JSON.stringify([row.sku,row.sellerId]);
+      const ingredients = (hit.details?.activeIngredients ?? []).map(a=>a.description).filter(Boolean);
       offers.set(key,{...listed(row,retailer),role:original?'requested':'generic',
-        ...(original && {requestedTradeName:hit.brand, requestedReferenceTitle:hit.name}),matchBasis:'verified_drop_presentation_and_barcode'});
+        ...(selection.requestedIngredientName && ingredients.length && {activeIngredients:ingredients,
+          ingredientEvidence:{source:'drogasil',gtin:code,field:'details.activeIngredients.description'}}),
+        ...(original && !selection.requestedIngredientName && {requestedTradeName:hit.brand}),
+        ...(original && {requestedReferenceTitle:hit.name}),matchBasis:'verified_drop_presentation_and_barcode'});
     }
   }
   const products = [...offers.values()];

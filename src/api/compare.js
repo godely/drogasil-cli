@@ -1,4 +1,4 @@
-import { normalize, catalogQuery, dropSearchTerms, documentedDrops, presentationTokens, matchesRequest } from './presentation-label.js';
+import { normalize, normalizeSublingual, requestsSublingual, requestsDrops, catalogQuery, presentationSearchTerms, documentedDrops, presentationTokens, matchesRequest } from './presentation-label.js';
 import { countedPack, directCountedListing } from './counted-pack.js';
 import { getProductsBySku, searchProducts } from './algolia.js';
 import { normalizeCep } from './graphql.js';
@@ -69,7 +69,7 @@ function describePresentation(product) {
     if (!unit || !Number.isFinite(dose) || dose <= 0) missing.add('strength');
     doses.push(JSON.stringify([name, dose, unit]));
   }
-  const label = normalize([product.name, product.brand, form, pack].join(' '));
+  const label = normalizeSublingual(normalize([product.name, product.brand, form, pack].join(' ')));
   const markers = label.match(/\b(?:xr|xl|sr|cr|er|dr|la|lp|mr|retard|chrono|depot|orodispersivel|sublingual|mastigavel|efervescente|gastrorresistente|liberacao (?:prolongada|modificada|controlada|retardada|lenta|bifasica))\b/g) ?? [];
   // Titles disambiguate liquid concentrations and bottle counts missing from structured doses.
   const liquidDetails = presentationTokens(product.name).filter(t => t.includes('/') || /^\d+frasco$/.test(t));
@@ -117,7 +117,8 @@ export function literalBrandPack(row, query, brand) {
   if (name !== label && !name.startsWith(label+' ') && normalize(row.brand)!==label) return false;
   if (/\b(?:kit|brinde|gratis)\b|\+\s*(?:\d+\s*)?porta[- ]?comprimidos?/.test(name)) return false;
   const facts=row.facts??{};
-  const product={name:row.name,brand:row.brand,filters:{'Forma farmacêutica':facts['Forma Farmacêutica']},
+  const product={name:row.name,brand:row.brand,filters:{'Forma farmacêutica':facts['Forma Farmacêutica'] ?? facts.Apresentação,
+    'Via de administração':facts['Via de Administração'] ?? facts['Forma de Administração']},
     details:{quantidade:facts.Quantidade,dosageList:[facts.Dosagem].flat().filter(Boolean)}};
   query = normalizeReleaseRequest(query);
   const request=normalize(query);
@@ -133,7 +134,7 @@ export function literalBrandPack(row, query, brand) {
 
 async function referenceOptions(query, release) {
   if (/^\d+$/.test(query)) return (await getProductsBySku([query])).filter(p => p && matchesRelease(p, release));
-  const candidates = (await searchAll(dropSearchTerms(query) || query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
+  const candidates = (await searchAll(presentationSearchTerms(query) || query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
   const exact = candidates.filter(product => {
     const brandDose = [product.brand, ...(product.details?.dosageList ?? [])].join(' ');
     return [product.name, brandDose].some(value => normalize(value) === normalize(query));
@@ -167,7 +168,8 @@ export async function compareProducts(query, { origin = null, store, resolveName
     refs = [];
   } else if (resolved?.filters) {
     const suffix = catalogQuery(resolved.suffix);
-    refs = await ingredientPresentations(lookup, { ...resolved, suffix:dropSearchTerms(suffix) }, includeUnpriced);
+    const searchTerm = requestsSublingual(suffix) ? '' : presentationSearchTerms(suffix);
+    refs = await ingredientPresentations(lookup, { ...resolved, suffix:searchTerm }, includeUnpriced);
     refs = refs.filter(product => (!suffix || matchesRequest(product, suffix)) && matchesRelease(product, release));
     if (!refs.length && release === 'extended' && resolved.kind === 'brand') {
       const family = normalize(resolved.name);
@@ -182,6 +184,10 @@ export async function compareProducts(query, { origin = null, store, resolveName
   if (resolved?.kind === 'brand') {
     info.requestedBrandName = resolved.name;
     info.requestedBrandSkus = refs.map(p => String(p.sku));
+  }
+  if (resolved?.kind === 'ingredient' && requestsDrops(query)) {
+    info.requestedIngredientName = resolved.name;
+    info.referenceSkus = refs.map(p => String(p.sku));
   }
   if (!info.requestedBrandSkus && resolved?.kind === 'text') {
     const brand = refs[0].brand;

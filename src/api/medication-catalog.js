@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fold, resolveName, medicationIndex, distance, resolveMedication } from './medications.js';
+import { catalogQuery, documentedSublingual, normalizeSublingual } from './presentation-label.js';
 
 const dcb = new Set(readFileSync(new URL('../data/dcb-names.txt', import.meta.url), 'utf8').trimEnd().split('\n'));
 export const isDcbName = term => dcb.has(fold(term));
 const clean = value => fold(value ?? '').replace(/(\d),(?=\d)/g, '$1.').replace(/\s+/g, ' ');
-const tokens = value => clean(value).match(/\d+(?:\.\d+)?\s*(?:mcg|mg|ml|ui|g|%)(?:\s*\/\s*(?:ml|g|h|dose))?|[a-z]+|\d+(?:\.\d+)?/g)?.map(t=>t.replace(/\s/g,'')) ?? [];
+const tokens = value => normalizeSublingual(clean(value)).match(/\d+(?:\.\d+)?\s*(?:mcg|mg|ml|ui|g|%)(?:\s*\/\s*(?:ml|g|h|dose))?|[a-z]+|\d+(?:\.\d+)?/g)?.map(t=>t.replace(/\s/g,'')) ?? [];
 const contains = (list, part) => part.length > 0 && list.some((_,i) => part.every((word,j)=>list[i+j]===word));
 const unitDose = word => /^\d+(?:\.\d+)?(?:mg|mcg|g|ui|%)(?:\/|$)/.test(word);
 
@@ -104,7 +105,7 @@ export async function medicationIntent(input, getIndex = medicationIndex) {
 }
 
 export function verifiedRow(row, intent, { ingredients = [], evidence } = {}) {
-  const title = tokens(row.name), requested = tokens(intent.name), rest = tokens(intent.suffix);
+  const title = tokens(row.name), requested = tokens(intent.name), rest = tokens(catalogQuery(intent.suffix ?? ''));
   // An ingredient appearing after "sem" or "para" describes the product,
   // but does not establish its composition. Accept a leading identity only.
   const prefix = title.slice(0, title.indexOf(requested[0]));
@@ -115,7 +116,10 @@ export function verifiedRow(row, intent, { ingredients = [], evidence } = {}) {
   if (intent.kind === 'ingredient' && (ingredients.length ? !inIngredients : !inTitle)) return;
   if (intent.kind === 'brand' && !inTitle && !contains(tokens(row.brand),requested)) return;
   if (intent.kind === 'text' && !contains(title,requested) && !contains(tokens(row.brand),requested)) return;
-  if (!rest.filter(w=>!['de','com','em'].includes(w)).every(w=>title.includes(w))) return;
+  const supportsTerm = word => word === 'sublingual' ? documentedSublingual(row.name,
+    row.facts?.['Forma Farmacêutica'] ?? row.facts?.Apresentação,
+    row.facts?.['Via de Administração'] ?? row.facts?.['Forma de Administração']) : title.includes(word);
+  if (!rest.filter(w=>!['de','com','em'].includes(w)).every(supportsTerm)) return;
   if (rest.some(unitDose) && (title.filter(unitDose).length > 1 || /\+/.test(row.name))) {
     if (!rest.filter(unitDose).every(dose=>contains(title,[...requested,dose]))) return;
   }

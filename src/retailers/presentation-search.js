@@ -2,7 +2,7 @@ import { compareProducts, literalBrandPack } from '../api/compare.js';
 import { resolveMedication, fold } from '../api/medications.js';
 import { samePack, validBarcode } from '../api/retail-prices.js';
 
-const presentationMarker = /\d\s*(?:mg|mcg|ml|g\b|comprimidos?|capsulas?)|\b(?:gts|gotas?|sublingual|liberacao|xr|sr|lp)\b/;
+const presentationMarker = /\d\s*(?:mg|mcg|ml|g\b|comprimidos?|capsulas?)|\b(?:gts|gotas?|sub[- ]?lingua(?:l|is)|liberacao|xr|sr|lp)\b/;
 
 // Only a literally named brand enters this path. Spelling corrections keep
 // their existing confirmation step on the retailer's normal search path.
@@ -45,7 +45,7 @@ export function withBrandPacks(source, resolvePacks = brandPacks) {
       const gtin = String(ref.eanCode ?? '');
       if (!validBarcode(gtin)) continue;
       for (const row of await source.byGtin(gtin)) {
-        if (samePack({ gtin, name: ref.name }, row)) append(row, 'verified_reference_barcode_and_pack');
+        if (samePack({ gtin, name: ref.name, filters:ref.filters }, row)) append(row, 'verified_reference_barcode_and_pack');
       }
     }
     // Local packs can exist without a reference barcode. An upstream page

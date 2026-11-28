@@ -1,5 +1,5 @@
 import { prescriptionInfo } from '../api/regulatory-info.js';
-import { documentedDrops, matchesLabeledDropRequest, requestsDrops } from '../api/presentation-label.js';
+import { documentedDrops, documentedSublingual, matchesLabeledDropRequest, requestsDrops } from '../api/presentation-label.js';
 import { validBarcode } from '../api/retail-prices.js';
 import { matchesDropListing } from './drop-listing.js';
 import { getMedicationInfo, infoRecords, medicationFacts } from '../api/medication-info.js';
@@ -48,7 +48,9 @@ export function medicationCard(row) {
   const strengths = title.match(/\b\d+(?:[.,]\d+)?\s*(?:mcg|µg|mg|g|ui|%)(?:\s*\/\s*(?:\d+(?:[.,]\d+)?\s*)?(?:ml|g|h|dose|gota))?(?![\p{L}\p{N}]|\s*\/)/giu);
   const packs = title.replace(/\/\s*(?:\d+(?:[.,]\d+)?\s*)?ml\b/gi, '/').match(/\b\d+(?:[.,]\d+)?\s*(?:ml|comprimidos?|c[áa]psulas?|ampolas?|sach[eê]s?)\b/giu);
   const activeIngredients = values(row.activeIngredients, fields.NomeSubstanciaPrincipioAtivo, fields['Princípio Ativo']);
-  const routes = values(fields['Forma de Administração'], fields['Formas de Administração'], fields['Via de Administração']);
+  const declaredRoutes = values(fields['Forma de Administração'], fields['Formas de Administração'], fields['Via de Administração']);
+  const routes = documentedSublingual(title, fields['Forma Farmacêutica'] ?? fields.Apresentação, declaredRoutes)
+    ? ['Sublingual'] : declaredRoutes;
   const release = title.match(/\blibera[çc][ãa]o (?:imediata|prolongada|modificada|retardada|controlada)|\b(?:XR|SR|LP|CR)\b/gi);
   const forms = values(fields['Forma Farmacêutica'], fields.Apresentação, form ?? []);
   const liquid = /gotas?|solu[çc][ãa]o|suspens[ãa]o|xarope|col[ií]rio/iu.test([title,...forms].join(' '));
