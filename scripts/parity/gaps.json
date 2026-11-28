@@ -1,0 +1,41 @@
+{
+  "drogasil": [],
+  "paguemenos": [
+    "compare",
+    "exit: empty invocation",
+    "exit: invalid option",
+    "exit: invalid page",
+    "exit: missing location",
+    "exit: unknown command",
+    "info --brazil",
+    "plan",
+    "product: ordered missing slots",
+    "snapshot",
+    "stock --all",
+    "stock --expand",
+    "stock --lat",
+    "stock --lon",
+    "stock --max-branches",
+    "stock --min-qty",
+    "stores"
+  ],
+  "drogariasaopaulo": [
+    "compare",
+    "exit: empty invocation",
+    "exit: invalid option",
+    "exit: invalid page",
+    "exit: missing location",
+    "exit: unknown command",
+    "info --brazil",
+    "plan",
+    "product: ordered missing slots",
+    "snapshot",
+    "stock --all",
+    "stock --expand",
+    "stock --lat",
+    "stock --lon",
+    "stock --max-branches",
+    "stock --min-qty",
+    "stores"
+  ]
+}
