@@ -1,0 +1,74 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {compare} from '../scripts/benchmark/actor.mjs';
+
+const shared = {startedAt:'2026-11-01T12:00:00Z',finishedAt:'2026-11-01T12:00:10Z',input:{searchQueries:['A','B'],maxItems:8}};
+const local = {...shared,source:'drogasil-cli',status:'succeeded',records:[
+  {sku:'01',searchQuery:'A',currentPrice:0,listPrice:null,inStock:false},
+  {sku:'02',searchQuery:'B',currentPrice:null},
+]};
+const actor = {...shared,source:'apify-run',status:'SUCCEEDED',records:[
+  {sku:'02',searchQuery:'A',currentPrice:18},
+  {sku:'01',searchQuery:'A',currentPrice:null,listPrice:null,inStock:false},
+]};
+
+test('paired timing is independent of row order, equality and billing evidence',()=>{
+  const r=compare(local,actor);
+  assert.equal(r.paired,true);
+  assert.equal(r.compared,2);
+  assert.equal(r.local.elapsedMs,10000);
+  assert.deepEqual(r.attributionDifferences,[{sku:'02',local:'B',actor:'A'}]);
+  assert.deepEqual(r.fields.currentPrice,{equal:0,different:2,bothNull:0,localMissing:0,actorMissing:0,localNull:1,actorNull:1});
+  assert.deepEqual(r.fields.listPrice,{equal:0,different:0,bothNull:1,localMissing:1,actorMissing:1,localNull:1,actorNull:1});
+  assert.equal(r.fields.inStock.equal,1);
+  assert.deepEqual(r.local.fieldCoverage.currentPrice,{values:1,nulls:1,missing:0});
+  assert.deepEqual(r.actor.fieldCoverage.inStock,{values:1,nulls:0,missing:1});
+  assert.deepEqual(r.changedFields,[{sku:'01',fields:['currentPrice']},{sku:'02',fields:['currentPrice','searchQuery']}]);
+  assert.equal(r.actor.chargedEventCounts,null);
+  assert.equal(r.actor.usageTotalUsd,null);
+  assert.equal(compare(local,{...actor,usageTotalUsd:0}).actor.usageTotalUsd,0);
+});
+
+test('old samples, different inputs, incomplete runs and missing timing cannot establish pairing',()=>{
+  for (const change of [{status:'FAILED'},{source:'publisher-example'},{input:null},{input:{maxItems:2}},
+    {input:{searchQueries:['B','A'],maxItems:8}},{finishedAt:null},
+    {startedAt:'2026-10-01T12:00:00Z',finishedAt:'2026-10-01T12:00:10Z'}]) {
+    assert.equal(compare(local,{...actor,...change}).paired,false);
+  }
+  assert.throws(()=>compare(local,{...actor,input:{pageSize:4}}),/Unexpected/);
+});
+
+test('diagnoses invalid and duplicate records without comparing an arbitrary copy',()=>{
+  const r=compare({...local,records:[...local.records,{sku:'01'},{sku:2},{sku:'03'}]},
+    {...actor,records:[...actor.records,{sku:'04'}]});
+  assert.deepEqual(r.local.duplicateSkus,['01']);
+  assert.equal(r.local.invalidSkuRows,1);
+  assert.equal(r.shared,2);
+  assert.equal(r.compared,1);
+  assert.deepEqual(r.onlyLocal,['03']);
+  assert.deepEqual(r.onlyActor,['04']);
+});
+
+test('reads an existing Actor run in bounded pages and retains its observed event counts',async()=>{
+  const {actorRun}=await import('../scripts/benchmark/actor.mjs');
+  const records=Array.from({length:115},(_,i)=>({sku:String(i+1)}));
+  const base={'acts/automation-lab~drogasil-pharmacy-products-prices':{data:{id:'actor1'}},
+    'actor-runs/run1':{data:{actId:'actor1',status:'SUCCEEDED',defaultKeyValueStoreId:'bucket1',
+      defaultDatasetId:'dataset1',usageTotalUsd:0.23,chargedEventCounts:{'actor-start':1,'item-extracted':115}}},
+    'key-value-stores/bucket1/records/INPUT':{maxItems:115},'key-value-stores/bucket1/records/RUN_STATS':{searchPages:3},
+    'datasets/dataset1':{data:{itemCount:115}}};
+  const read=async path=>{
+    if (Object.hasOwn(base,path)) return base[path];
+    if (path==='datasets/dataset1/items?format=json&offset=0&limit=100') return records.slice(0,100);
+    if (path==='datasets/dataset1/items?format=json&offset=100&limit=15') return records.slice(100);
+    assert.fail('Unexpected request '+path);
+  };
+  const result=await actorRun('run1',read);
+  assert.deepEqual(result.records,records);
+  assert.deepEqual(result.work,{searchPages:3});
+  assert.equal(result.chargedEventCounts['item-extracted'],115);
+  assert.equal(result.usageTotalUsd,0.23);
+  await assert.rejects(actorRun('run1',p=>p.includes('offset=100')?[]:read(p)),/Incomplete dataset read/);
+  await assert.rejects(actorRun('run1',p=>p==='actor-runs/run1'?{data:{actId:'other'}}:read(p)),/different Actor/);
+  await assert.rejects(actorRun('run1',p=>p==='actor-runs/run1'?{data:{actId:'actor1',status:'RUNNING'}}:read(p)),/still active/);
+});
