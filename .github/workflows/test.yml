@@ -54,8 +54,8 @@ jobs:
             dsp: main
             flags: ''
           - release: tested
-            pm: 66ff17979c9a532d91df0de0fca5edce474841a1
-            dsp: cfa85886692b4acb575e5188b35d62a78de906d2
+            pm: f92c40ab2902d7506e812967a67adb10850ca93f
+            dsp: 73622a310a235102b9b7913fc8dbab71c2d74918
             flags: --candidate
     steps:
       - uses: actions/checkout@v4
