@@ -95,6 +95,11 @@ const immediateLabel = /\b(?:liberacao (?:imediata|convencional)|immediate[- ]re
 const extendedLabel = /\b(?:xr|xl|er|sr|lp|liberacao (?:prolongada|lenta)|extended[- ]release)\b/;
 const otherModifiedLabel = /\b(?:cr|dr|la|mr|retard|chrono|depot|gastrorresistente|liberacao (?:modificada|controlada|retardada|bifasica))\b/;
 
+// A shopper may describe conventional tablets this way without naming the release.
+function normalizeReleaseRequest(query) {
+  return query.replace(/\b(comprimidos?)\s+(?:comum|comuns|convencional|convencionais)\b/gi, '$1 de liberação imediata');
+}
+
 function matchesRelease(product, release) {
   if (!release) return true;
   const label = normalize([product.name, product.brand, product.filters?.['Forma farmacêutica'], product.details?.quantidade].join(' '));
@@ -114,6 +119,7 @@ export function literalBrandPack(row, query, brand) {
   const facts=row.facts??{};
   const product={name:row.name,brand:row.brand,filters:{'Forma farmacêutica':facts['Forma Farmacêutica']},
     details:{quantidade:facts.Quantidade,dosageList:[facts.Dosagem].flat().filter(Boolean)}};
+  query = normalizeReleaseRequest(query);
   const request=normalize(query);
   const immediate=immediateLabel.test(request), extended=extendedLabel.test(request);
   if (immediate && (extended || otherModifiedLabel.test(request))) return false;
@@ -141,7 +147,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
   if (store && (!origin || (store !== 'nearest' && !/^\d+$/.test(store)))) {
     throw new TypeError('store requires an origin and either nearest or a numeric store ID');
   }
-  query = String(query).trim();
+  query = normalizeReleaseRequest(String(query).trim());
   const label = normalize(query);
   const immediate = immediateLabel.test(label);
   if (immediate && (extendedLabel.test(label) || otherModifiedLabel.test(label))) {
@@ -196,6 +202,14 @@ export async function compareProducts(query, { origin = null, store, resolveName
     const direct = refs.map(product =>
       Number.isFinite(product.price) && product.price > 0 ? product : { ...product, price: null });
     direct.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
+    // Each listing can satisfy the named ingredient directly when its own title
+    // and composition verify the requested pack. Brand equivalence remains separate.
+    if (directShopping && !origin && onlyFormMissing && resolved?.kind === 'ingredient') {
+      const pack = countedPack(resolved.suffix);
+      if (pack && refs.every(product => directCountedListing(product, resolved.name, pack))) {
+        return { ...info, status: 'matches', matchBasis: 'direct_requested_pack', products: direct };
+      }
+    }
     const products = origin ? await compareNearby(direct, origin, store, expandSearch, info) : direct;
     return { ...info, status: 'incomplete_presentation', missingFields, referenceSkus: direct.map(p => String(p.sku)),
       products, hint: 'Report these direct catalog hits and their available stock. Equivalence is unverified. Confirmation or retrying these SKUs cannot fill the missing catalog fields.' };

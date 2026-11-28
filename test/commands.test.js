@@ -280,6 +280,9 @@ test('explicit release selects the documented presentation and preserves dose an
   const page = { results: [{ hits: [extended, base, unknown], nbPages: 1 }] };
   for (const [query, expected] of [
     ['Frontal 2 mg 30 comprimidos de liberação imediata', 88262],
+    ['Frontal 2 mg, 30 comprimidos comuns', 88262],
+    ['Frontal XR 2 mg, 30 comprimidos comuns', null],
+    ['Frontal 2 mg, 60 comprimidos convencionais', null],
     ['Frontal 2 mg de liberação prolongada, com 30 comprimidos', 28619],
     ['Frontal 2 mg 60 comprimidos de liberação imediata', null],
     ['Frontal 3 mg de liberação imediata', null],

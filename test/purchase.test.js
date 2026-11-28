@@ -235,6 +235,17 @@ test('a chosen ingredient pack is one shopping line across manufacturers', async
   assert.deepEqual(multi.plans[0].unfilled, ['A']);
 });
 
+test('a basket can use a named ingredient when every matching title and composition verifies the same requested pack', async t => {
+  const {products} = fixture(t);
+  for (const product of products.slice(0, 2)) product.filters = {};
+  const result = await planPurchase(['Example 1mg 10 comprimidos', 'Beta 1mg'], {origin,includeBranchChoices:true});
+  assert.equal(result.tables[0].matchBasis, 'direct_requested_pack');
+  assert.equal(result.tables[0].needsSelection, undefined);
+  assert.equal(result.status, 'complete');
+  assert.ok(result.plans.some(plan => plan.stopCount === 1 && !plan.unfilled.length));
+  assert.ok(result.branchChoices[0].length);
+});
+
 test('a regional planner can reuse all eligible branches, coordinates and stock checks',async t=>{
   const {calls}=fixture(t);
   const r=await planPurchase(['Alpha 1mg','Beta 1mg'],{origin,includeBranchChoices:true});
