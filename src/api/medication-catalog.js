@@ -105,16 +105,23 @@ export async function nameChoices(query, {intentFor = medicationIntent, resolve 
   const candidates = intent.suggestions.slice(0, 7);
   if (candidates.length === 1) return candidates;
   const suffix = intent.suffix ? ' ' + intent.suffix : '';
-  const confirmedIngredients = await Promise.all(candidates.map(async term => {
+  // A brand and an ingredient can share the exact letters the shopper typed.
+  // Keep live prefix matches ahead of approximate spellings and DCB-only entries.
+  const ranked = await Promise.all(candidates.map(async term => {
     const name = suffix ? term.slice(0, -suffix.length) : term;
-    if (!isDcbName(name)) return 'other';
+    const prefix = /^[a-z]+$/.test(name) && name.startsWith(intent.name);
+    const dcbName = isDcbName(name);
+    if (!prefix && !dcbName) return {};
     const resolved = await resolve(name).catch(() => null);
-    if (!resolved) return 'unverified';
-    return resolved.kind === 'ingredient' && !resolved.interpretation ? 'current' : 'other';
+    const exact = resolved && !resolved.interpretation && !resolved.suffix;
+    const ingredient = exact && resolved.kind === 'ingredient';
+    const livePrefix = prefix && exact && (ingredient || resolved.kind === 'brand');
+    return {livePrefix, ingredient: dcbName && (ingredient || !resolved)};
   }));
-  const ingredients = candidates.filter((_, i) => confirmedIngredients[i] !== 'other');
-  if (ingredients.length >= 2) return ingredients;
-  return [ingredients[0] ?? candidates[0]];
+  const prefixes = candidates.filter((_, i) => ranked[i].livePrefix);
+  if (prefixes.length) return prefixes;
+  const ingredients = candidates.filter((_, i) => ranked[i].ingredient);
+  return ingredients.length ? ingredients : [candidates[0]];
 }
 
 export function namePrompt(choices) {
