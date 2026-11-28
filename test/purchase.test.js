@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { medicationType, planPurchase } from '../src/api/index.js';
+import { compareProducts, medicationType, planPurchase } from '../src/api/index.js';
 import { applySelections, renderPurchase } from '../src/commands/plan.js';
 import { optimizePlans } from '../src/api/purchase-plans.js';
 
@@ -45,6 +45,18 @@ function fixture(t) {
   });
   return { inventory, products, calls };
 }
+
+test('a numeric reference survives either generic choice without a stock lookup', async t => {
+  const { calls } = fixture(t);
+  for (const [sku, includeGenerics, expected] of [
+    ['11', false, ['11']], ['11', true, ['11', '12']], ['12', false, ['12']],
+  ]) {
+    const result = await compareProducts(sku, { resolveNames: true, includeGenerics });
+    assert.equal(result.status, 'matches');
+    assert.deepEqual(result.products.map(p => p.sku), expected);
+  }
+  assert.deepEqual(calls, []);
+});
 
 test('two compact tables retain farther branches for the one-stop plan and quantify savings', async t => {
   fixture(t);

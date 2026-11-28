@@ -252,7 +252,10 @@ export async function compareProducts(query, { origin = null, store, resolveName
   }
   const sorted = [...matches.values()].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
   if (!sorted.length) return { ...info, status: 'no_prices', products: [], excluded };
-  const options = brandOptions(sorted, info.requestedBrandSkus, includeGenerics);
+  // Exact SKUs and literal catalog hits are valid references even when
+  // the name resolver supplied no commercial-brand metadata.
+  const requestedSkus = info.requestedBrandSkus ?? refs.map(product => String(product.sku));
+  const options = brandOptions(sorted, requestedSkus, includeGenerics);
   const products = origin ? await compareNearby(options, origin, store, expandSearch, info) : options;
   return { ...info, ...(excluded.length ? { excluded } : {}), status: products.length ? 'matches' : (info.expandedSearch?.partial || info.coverage?.stockUnknown) ? 'stock_unknown' : 'no_stock', products };
 }
