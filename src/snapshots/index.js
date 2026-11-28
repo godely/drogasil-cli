@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as pause } from 'node:timers/promises';
 import { searchProducts } from '../api/algolia.js';
 import { readStorefront } from '../api/storefront.js';
+import { partnerSnapshotRecord } from '../retailers/snapshot-record.js';
 
 const storeScript = fileURLToPath(new URL('./db.py', import.meta.url));
 async function store(input) {
@@ -25,7 +26,14 @@ export async function readSnapshot(id, { offset = 0, limit = 20 } = {}) {
   if (typeof id !== 'string' || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
     throw new TypeError('Invalid run ID, offset or page size');
   }
-  return store({ op: 'read', id, offset, limit });
+  const page = await store({ op: 'read', id, offset, limit });
+  page.records = page.records.map(record => {
+    if (record.retailerId && Array.isArray(record.offers) && !Object.hasOwn(record, 'scrapedAt')) {
+      return partnerSnapshotRecord(record);
+    }
+    return record;
+  });
+  return page;
 }
 
 export async function collectSnapshot(queries, { maxItems = 20, background = false } = {}, sources = {}) {

@@ -1,5 +1,6 @@
 import { getMedicationInfo } from '../api/medication-info.js';
 import { collectSnapshot } from '../snapshots/index.js';
+import { partnerSnapshotRecord } from './snapshot-record.js';
 
 function values(...fields) {
   return [...new Set(fields.flat().filter(v => typeof v === 'string' && v.trim()).map(v => v.trim()))];
@@ -76,7 +77,7 @@ export async function catalogSnapshot({retailer, queries, maxItems}, source, {ba
       return {hits:[...products.values()], nbPages:rows.length ? page + 2 : page + 1};
     },
     async read(hit, query) {
-      return {snapshot:{retailerId:retailer, searchQuery:query, ...hit}};
+      return {snapshot:partnerSnapshotRecord({retailerId:retailer, searchQuery:query, ...hit})};
     },
   });
 }
