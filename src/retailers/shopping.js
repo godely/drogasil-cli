@@ -111,9 +111,11 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
 }
 
 // An exact-SKU basket is a fulfillment check. Each quantity is an order quantity.
-export async function retailerBasket({retailer, items, zipcode}, source) {
+export async function retailerBasket({retailer, items, zipcode, coordinates}, source) {
+  if (zipcode != null && coordinates != null) throw new TypeError('Informe apenas uma origem');
+  const origin = coordinates ?? zipcode;
   const base = {retailerId:retailer};
-  if (source.serves && !await source.serves(zipcode)) return {...base,status:'outside_local_directory',items:[]};
+  if (source.serves && !await source.serves(origin)) return {...base,status:'outside_local_directory',items:[]};
   const chosen=[], pending=[];
   const catalog = new Map();
   for (const {sku, sellerId, quantity} of items) {
@@ -133,7 +135,7 @@ export async function retailerBasket({retailer, items, zipcode}, source) {
     } else chosen.push({offer:rows[0],quantity});
   }
   if (pending.length) return {...base,status:'unresolved_items',pending};
-  const quotes=await source.basket(chosen,zipcode);
+  const quotes=await source.basket(chosen,origin);
   const available=quotes.filter(q=>q.localStatus==='available');
   const complete=available.length===quotes.length && quotes.length>0;
   const pickupIds=q=>new Set(q.methods.filter(m=>m.channel==='pickup-in-point' && m.pickupPointId).map(m=>m.pickupPointId));

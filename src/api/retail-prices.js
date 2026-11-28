@@ -1,8 +1,7 @@
 import { searchProducts, getProductsBySku } from './algolia.js';
-import { compareProducts } from './compare.js';
 import { medicationType, productInfo } from './product-info.js';
 import { readStorefront } from './storefront.js';
-import { normalizeCep } from './graphql.js';
+import { compareProducts, normalizeOrigin } from './compare.js';
 
 const norm = text => String(text ?? '').normalize('NFD').replace(/\p{M}/gu,'').toLowerCase()
   .replace(/(\d),(\d)/g,'$1.$2').replace(/\s*\/\s*/g,'/');
@@ -39,9 +38,13 @@ export function samePack(anchor, row) {
 }
 function reference(p) { return { ...productInfo(p), gtin: String(p.eanCode ?? ''), itemName: p.name }; }
 
-export async function compareRetailPrices(input, { zipcode, retailers, includeGenerics = false, includeDrogasil = true }) {
+export async function compareRetailPrices(input, { zipcode, coordinates, retailers, includeGenerics = false, includeDrogasil = true }) {
   const query = String(input).trim();
-  zipcode = normalizeCep(zipcode);
+  if (zipcode != null && coordinates != null) throw new TypeError('Informe apenas uma origem');
+  const normalized = normalizeOrigin(zipcode != null ? { zipcode } :
+    { latitude: coordinates?.latitude, longitude: coordinates?.longitude });
+  const origin = normalized.zipcode ?? normalized;
+  const localPriceScope = normalized.zipcode ? 'verified_for_cep' : 'verified_for_coordinates';
   const exactGtin = validBarcode(query);
   let hits, catalogFailed = false;
   if (exactGtin) {
@@ -76,7 +79,7 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
   } catch { checked.push({ retailer:'Drogasil',status:'source_failed' }); }
   for (const provider of retailers) {
     try {
-      if (provider.serves && !await provider.serves(zipcode)) {
+      if (provider.serves && !await provider.serves(origin)) {
         checked.push({ retailer: provider.name, status: 'outside_local_directory' });
         continue;
       }
@@ -89,8 +92,12 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
       let verified = 0;
       for (const row of matched) {
         let offer = row;
-        try { offer = await provider.local(row,zipcode); }
+        try { offer = await provider.local(row,origin); }
         catch { issues.push({ retailer:provider.name, sku:row.sku, status:'location_lookup_failed' }); }
+        if (['verified_for_coordinates', 'verified_for_cep'].includes(offer.priceScope) && offer.priceScope !== localPriceScope) {
+          issues.push({ retailer:provider.name, sku:row.sku, status:'location_scope_mismatch' });
+          offer = row;
+        }
         const { facts, methods = [], branches, ...publicFields } = offer;
         const entry = { ...publicFields, type: offer.type ?? medicationType(offer),
           ...(branches ? { reportedBranches: branches } : {}),
@@ -99,7 +106,7 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
             channel, service, feeBRL, ...(channel === 'pickup-in-point' && { pickupPointId, branch, address }),
           })),
         };
-        if (offer.priceScope === 'verified_for_cep' && Number.isFinite(offer.currentPrice)) {
+        if (offer.priceScope === localPriceScope && Number.isFinite(offer.currentPrice)) {
           verifiedOffers.push(entry); verified++;
         } else onlineOffers.push(entry);
       }

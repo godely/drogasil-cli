@@ -59,3 +59,27 @@ test('Drogasil can establish identity without collecting a Drogasil offer', asyn
   assert.deepEqual(result.checkedRetailers,[{retailer:'Partner',status:'no_exact_match'}]);
   assert.deepEqual(result.onlineOffers,[]);
 });
+
+test('shared coordinates rank only prices verified for that origin', async t => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({results:[{hits:[]}]}));
+  const coordinates = {latitude:0, longitude:-44};
+  const row = {gtin:'7899547543766', sku:'2', name:'Exemplo 750 mg 20 comprimidos',
+    priceScope:'anonymous_online', currentPrice:15};
+  function provider(name, scope, price) {
+    return {name, serves:async origin => { assert.deepEqual(origin, coordinates); return true; },
+      byGtin:async () => [{...row, retailer:name}], local:async (offer, origin) => {
+        assert.deepEqual(origin, coordinates);
+        return {...offer, currentPrice:price, priceScope:scope};
+      }};
+  }
+  const result = await compareRetailPrices(row.gtin, {coordinates, includeDrogasil:false,
+    retailers:[provider('A','verified_for_coordinates',7), provider('B','verified_for_coordinates',5),
+      provider('C','verified_for_cep',1)]});
+  assert.deepEqual(result.verifiedOffers.map(offer => offer.retailer), ['B','A']);
+  assert.deepEqual(result.onlineOffers.map(offer => [offer.currentPrice, offer.priceScope]), [[15,'anonymous_online']]);
+  assert.equal(result.issues[0].status, 'location_scope_mismatch');
+  for (const invalid of [{}, {zipcode:'01001000',coordinates}, {coordinates:{latitude:3}},
+    {coordinates:{latitude:-91,longitude:0}}]) {
+    await assert.rejects(compareRetailPrices(row.gtin,{...invalid,retailers:[]}));
+  }
+});
