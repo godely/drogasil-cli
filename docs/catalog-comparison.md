@@ -20,11 +20,17 @@ Assessment of the November 2026 snapshot. The Actor collects anonymous storefron
 | Actor dataset fields | SKU, name, brand, categories and path, product URL, current and list prices, discount, currency, stock signal, in-stock flag, search query, source URL and observation time | Thirty storefront pages produced matching advertised selling prices. Source fields that were missing remained unknown. |
 | Persistent results and exports | SQLite run IDs, bounded reads, terminal status and JSON, CSV and XLSX export | Partial-failure tests preserve earlier records. The export check read back a live dataset in each format. |
 | Scheduling and integrations | A systemd timer or cron can launch the collector. The HTTPS webhook can deliver results to a workflow receiver. Sheets can import the spreadsheet exports. | A one-shot systemd timer ran on the deployment host. A local HTTPS receiver received the dataset and its idempotency header. Hosted Make, Zapier and Sheets account integrations were outside that test. |
-| Additional pharmacy workflows | Compare equivalent presentations, check branch quantities, plan purchases and compare identical packs across chains at a supplied location | The shared-pack pilot confirmed 25 matching presentations at two locations. The four-chain client also checked a single shared pack in all state capitals and five interior cities. |
+| Additional pharmacy workflows | Compare equivalent presentations, check reported Drogasil branch quantities, plan purchases and compare identical packs across chains at a supplied location | The shared-pack pilot confirmed 25 matching presentations at two locations. A separate geographic check covered one shared pack in all state capitals and five interior cities. |
 
 The original benchmark used the Actor's public schema. A paid run comparing row-by-row results and throughput against the Actor remains unmeasured. The hosted Apify platform also provides its own scheduler and dataset UI. Our deployment exposes the CLI, API and MCP for these workflows.
 
-[Snapshot usage](catalog-snapshots.md) · [Storefront field audit](storefront-audit.md) · [Exact-pack pilot](local-price-pilot.md) · [Four-chain API](https://github.com/godely/farmacias-br)
+[Snapshot usage](catalog-snapshots.md) · [Storefront field audit](storefront-audit.md) · [Exact-pack pilot](local-price-pilot.md) · [Farmácias BR](https://github.com/godely/farmacias-br)
+
+## Catalog check on November 28, 2026
+
+Running `drogasil snapshot collect paracetamol --limit 1` returned one Tylenol Bebê 15 mL record with all 15 documented Actor fields and a seller field. Fourteen of the 15 fields had values. The selling price was R$42.89 and the list price was R$65.34. The source supplied no discount percentage, so the snapshot kept it null. The storefront stock signal was `1`, which yielded `inStock: true`. Physical branch inventory requires a separate lookup. [Actor output fields](https://apify.com/automation-lab/drogasil-pharmacy-products-prices/output-schema)
+
+The Actor documents `paracetamol` as the default search. Running `drogasil snapshot collect --limit 1` without a search term exited with status 1. A paired run against the Actor is still needed to measure product overlap, field values, throughput and billed events under the same conditions. [Actor parameters](https://apify.com/automation-lab/drogasil-pharmacy-products-prices#input-parameters) · [Open compatibility checks](https://github.com/godely/drogasil-cli/issues/58)
 
 ## Reproduction
 
