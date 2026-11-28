@@ -99,6 +99,13 @@ function matchesRequest(product, query) {
     evidence.includes(term) && (!/^\d+(?:\.\d+)?ml$/.test(term) || !packVolumes.length || packVolumes.includes(term)));
 }
 
+export function matchesLabeledDropRequest(row,query) {
+  const [form,route] = [row.facts?.['Forma Farmacêutica'] ?? row.facts?.Apresentação, row.facts?.['Forma de Administração']];
+  const asProduct = name => ({name,filters:{'Forma farmacêutica':form,'Via de administração':route}});
+  const requested = catalogQuery(query);
+  return [row.name,row.itemName ?? row.name].every(name => matchesRequest(asProduct(name),requested));
+}
+
 function describePresentation(product) {
   const ingredients = product.details?.activeIngredients;
   const form = normalize(product.filters?.['Forma farmacêutica']);
