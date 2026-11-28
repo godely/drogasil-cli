@@ -8,6 +8,33 @@ const tokens = value => clean(value).match(/\d+(?:\.\d+)?\s*(?:mcg|mg|ml|ui|g|%)
 const contains = (list, part) => part.length > 0 && list.some((_,i) => part.every((word,j)=>list[i+j]===word));
 const unitDose = word => /^\d+(?:\.\d+)?(?:mg|mcg|g|ui|%)(?:\/|$)/.test(word);
 
+// This spelling is only used to propose catalog names for confirmation.
+// Keep nh/lh distinct and allow syllable-final l to sound like u.
+function spokenSpelling(word) {
+  return word.replace(/ph/g, 'f').replace(/ch/g, 'x').replace(/(?<![ln])h/g, '')
+    .replace(/qu(?=[ei])|c(?![ei])/g, 'k').replace(/c(?=[ei])|z/g, 's')
+    .replace(/(.)\1+/g, '$1').replace(/l(?=[^aeiou]|$)/g, 'u').replace(/n$/, 'm');
+}
+
+function similarSoundingNames(typed, names) {
+  const key = spokenSpelling(typed);
+  if (key.length < 6) return [];
+  const limit = key.length >= 9 ? 2 : 1;
+  let best = limit + 1;
+  const matches = [];
+  for (const name of names) {
+    if (!/^[a-z]+$/.test(name)) continue;
+    const other = spokenSpelling(name);
+    if (other.length < 6 || other.slice(0, 2) !== key.slice(0, 2) || Math.abs(other.length - key.length) > limit) continue;
+    const edits = distance(key, other);
+    if (edits > limit || edits > best) continue;
+    if (edits < best) matches.length = 0;
+    best = edits;
+    matches.push(name);
+  }
+  return matches.sort();
+}
+
 // Suggestions often repeat a declined name with a different strength or form.
 // Compare complete words so a rejection of loratadina still permits desloratadina.
 export function alternativeNames(terms, query, declined, limit = 7) {
@@ -45,6 +72,7 @@ export async function medicationIntent(input, getIndex = medicationIndex) {
   const [typed,...tail] = words;
   const suffix = tail.join(' ');
   const suggested = new Set();
+  let phoneticChoices = false;
   if (/^[a-z]{3,40}$/.test(typed)) {
     const drugNames = new Set([...names.ingredient.keys(), ...names.brand.keys()]);
     const prefix = [...new Set([...drugNames, ...dcb])].filter(name => name.startsWith(typed) && !name.includes(' '));
@@ -66,8 +94,13 @@ export async function medicationIntent(input, getIndex = medicationIndex) {
       nearby.sort((a,b)=>a.edits-b.edits || Number(isDcbName(b.name))-Number(isDcbName(a.name)) || a.name.localeCompare(b.name));
       for (const {name} of nearby) suggested.add(name);
     }
+    if (!suggested.size && typed.length >= 6) {
+      for (const name of similarSoundingNames(typed, drugNames)) suggested.add(name);
+      phoneticChoices = suggested.size > 0;
+    }
   }
-  return {kind:'text',name:typed,suffix,suggestions:[...suggested].slice(0,50).map(name=>[name,suffix].filter(Boolean).join(' '))};
+  return {kind:'text',name:typed,suffix,...(phoneticChoices && {suggestionBasis:'phonetic'}),
+    suggestions:[...suggested].slice(0,50).map(name=>[name,suffix].filter(Boolean).join(' '))};
 }
 
 export function verifiedRow(row, intent, { ingredients = [], evidence } = {}) {
@@ -127,7 +160,7 @@ export async function nameChoices(query, {intentFor = medicationIntent, resolve 
   const intent = await intentFor(query);
   if (catalogTerms.has(intent.name) || !intent.suggestions.length || (intent.suffix && !presentation.test(intent.suffix))) return [];
   const candidates = intent.suggestions.slice(0, 7);
-  if (candidates.length === 1) return candidates;
+  if (candidates.length === 1 || intent.suggestionBasis === 'phonetic') return candidates;
   const suffix = intent.suffix ? ' ' + intent.suffix : '';
   // A brand and an ingredient can share the exact letters the shopper typed.
   // Keep live prefix matches ahead of approximate spellings and DCB-only entries.

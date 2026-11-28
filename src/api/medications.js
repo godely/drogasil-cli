@@ -10,7 +10,7 @@ const aliases = new Map(Object.entries({
 }));
 export const fold = text => String(text).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 const phonetic = text => text.replace(/ph/g, 'f').replace(/z/g, 's').replace(/n$/, 'm').replace(/(.)\1/g, '$1');
-const qualifiers = new Set('cloridrato sulfato sodico sodica potassico potassica calcio monoidratada monoidratado diidratado pentaidratado acetato citrato fosfato brometo maleato nitrato anidro anidra'.split(' '));
+const qualifiers = new Set('cloridrato sulfato sodico sodica potassico potassica calcio monoidratada monoidratado diidratado pentaidratado acetato citrato fosfato brometo maleato nitrato tartarato hemitartarato anidro anidra'.split(' '));
 
 function add(map, key, value) {
   if (!map.has(key)) map.set(key, new Set());

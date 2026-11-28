@@ -44,3 +44,33 @@ test('a name index outage keeps plausible DCB choices available', async () => {
   const choices = await nameChoices('predniso', {intentFor: term => medicationIntent(term, offline), resolve: offline});
   assert.ok(choices.includes('prednisona') && choices.includes('prednisolona'));
 });
+
+test('strong misspellings propose documented names and retain strength, route and pack for confirmation', async () => {
+  const names = nameIndex([
+    ['Hemitartarato de Zolpidem', 'Amoxicilina', 'Clonazepam', 'Dipirona Sódica'],
+    ['Rivotril'],
+  ]);
+  const intentFor = query => medicationIntent(query, async () => names);
+  const choices = query => nameChoices(query, {intentFor, resolve: async term => resolveName(term, names)});
+  for (const [typed, expected] of [
+    ['rhibotriu sublingual', 'rivotril sublingual'],
+    ['zoupidenn 10 mg/ml 20 ml', 'zolpidem 10 mg/ml 20 ml'],
+    ['amokssissilina', 'amoxicilina'], ['klohnazepann', 'clonazepam'], ['dippirronnah', 'dipirona'],
+  ]) {
+    assert.deepEqual(await choices(typed), [expected]);
+    assert.deepEqual(await choices(expected), []);
+  }
+  assert.equal((await intentFor('zoupidenn')).kind, 'text');
+  assert.deepEqual(await choices('qzambote'), []);
+  assert.deepEqual(await choices('hidratante'), []);
+  assert.match(resolveName('zolpidem', names).filters, /Hemitartarato de Zolpidem/);
+  const catalog = medicationCatalog({}, {intentFor, searchVerified: () => assert.fail('searched before confirmation')});
+  assert.deepEqual(await catalog.search('rhibotriu'), []);
+});
+
+test('both catalog identities survive an equal phonetic distance', async () => {
+  const names = nameIndex([['Ribotril'], ['Rivotril']]);
+  const intentFor = query => medicationIntent(query, async () => names);
+  assert.deepEqual(await nameChoices('rhitotriuu', {intentFor, resolve: async t => resolveName(t, names)}),
+    ['ribotril', 'rivotril']);
+});
