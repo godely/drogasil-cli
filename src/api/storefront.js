@@ -51,12 +51,13 @@ export async function fetchStorefrontPage(url, onResponseBytes) {
   const directory = await mkdtemp(join(tmpdir(), 'drogasil-offer-'));
   const headersPath = join(directory, 'headers');
   try {
-    const {stdout} = await exec('curl', ['--silent', '--show-error', '--max-time', '20', '--max-filesize', '8000000',
-      '--dump-header', headersPath, '--write-out', '\n%{http_code}', '--', url], {maxBuffer:8_500_000,encoding:'buffer'});
+    const {stdout} = await exec('curl', ['--silent', '--show-error', '--compressed', '--max-time', '20', '--max-filesize', '8000000',
+      '--dump-header', headersPath, '--write-out', '\n%{http_code} %{size_download}', '--', url], {maxBuffer:8_500_000,encoding:'buffer'});
     const end = stdout.lastIndexOf(10);
-    const status = Number(stdout.subarray(end + 1).toString('ascii'));
+    const [status, transferBytes] = stdout.subarray(end + 1).toString('ascii').split(' ').map(Number);
     const body = stdout.subarray(0, end);
-    onResponseBytes?.(body.length);
+    if (body.length > 8_000_000) throw new Error('Storefront response exceeds the decoded size limit');
+    onResponseBytes?.(body.length, transferBytes);
     if (status < 200 || status >= 300 || !Number.isInteger(status)) {
       const error = new HttpError(status, url, null, 'Product page returned HTTP ' + status);
       const headers = await readFile(headersPath, 'utf8');

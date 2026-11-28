@@ -66,6 +66,12 @@ export async function collectSnapshot(queries = [DEFAULT_SNAPSHOT_QUERY], { maxI
       observedResponses:0, responseBodyBytes:0, retries:0, skippedServices:0, skippedDuplicates:0, invalidSkus:0, uniqueProducts:0 };
     const sleep = sources.sleep ?? pause;
     const onBytes = bytes => { stats.observedResponses++; stats.responseBodyBytes += bytes; };
+    const onProductBytes = (decoded, transferred) => {
+      onBytes(decoded);
+      if (Number.isSafeInteger(transferred) && transferred >= 0) {
+        stats.productTransferBytes = (stats.productTransferBytes ?? 0) + transferred;
+      }
+    };
     let lastStart = -Infinity;
     async function attempt(counter, readSource) {
       for (let retries = 0; ; retries++) {
@@ -95,7 +101,7 @@ export async function collectSnapshot(queries = [DEFAULT_SNAPSHOT_QUERY], { maxI
             if (!/^\d+$/.test(sku)) { stats.invalidSkus++; continue; }
             if (/^(service|serviço)$/i.test(hit.type ?? '')) { stats.skippedServices++; continue; }
             if (seen.has(sku)) { stats.skippedDuplicates++; continue; }
-            const {snapshot, html} = await attempt('productRequests', () => read(hit, query, onBytes));
+            const {snapshot, html} = await attempt('productRequests', () => read(hit, query, onProductBytes));
             stats.productPageBytes += Buffer.byteLength(html ?? '');
             await store({ op: 'row', id, row: snapshot });
             seen.add(sku);

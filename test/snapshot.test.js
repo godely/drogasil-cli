@@ -176,7 +176,7 @@ test('transient failures retry the same operation, retain first-query attributio
       reads.push(sku);
       if (reads.length === 1) throw new NetworkError('example',new Error('timeout'),100);
       if (reads.length === 2) throw new HttpError(503,'example',null);
-      onBytes(5); return {snapshot:{sku,searchQuery:query},html:'abcde'};
+      onBytes(5, 3); return {snapshot:{sku,searchQuery:query},html:'abcde'};
     },
   });
   assert.equal(result.state,'succeeded');
@@ -184,7 +184,7 @@ test('transient failures retry the same operation, retain first-query attributio
   assert.deepEqual(delays,[2000,750,1500]);
   assert.deepEqual(result.records.map(r => [r.sku,r.searchQuery]),[['1','first'],['3','second']]);
   assert.deepEqual(result.stats,{searchPages:2,searchRequests:3,rowsScanned:5,productRequests:4,productPageBytes:10,
-    observedResponses:5,responseBodyBytes:40,retries:3,skippedServices:1,skippedDuplicates:1,invalidSkus:1,uniqueProducts:2});
+    observedResponses:5,responseBodyBytes:40,productTransferBytes:6,retries:3,skippedServices:1,skippedDuplicates:1,invalidSkus:1,uniqueProducts:2});
 });
 
 test('permanent errors and long rate limits stop immediately; exhausted transient retries keep earlier records', async t => {
