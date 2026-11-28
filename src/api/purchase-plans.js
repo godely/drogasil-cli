@@ -8,7 +8,7 @@ function rank(a, b) {
   return 0;
 }
 
-function routeFinder(stores, coordinates) {
+export function routeFinder(stores, coordinates) {
   const routes = new Map();
   return function tour(storeIds) {
     const ids = Array.from(storeIds).sort();
