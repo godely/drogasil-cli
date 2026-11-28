@@ -42,10 +42,13 @@ export function prescriptionInfo(stripe, description, ingredients, route) {
   const prescribed = /venda (?:sob|so(?:b)?(?: com)?) prescricao|venda mediante (?:a )?prescricao|receita obrigatoria/.test(evidence) || retained || (noRetention && /tarjad[oa]/.test(evidence));
   const single = ingredients.length === 1 ? fold(ingredients[0]).replace(/^cloridrato de /, '').replace(/ mono(idratad[oa]|hidratad[oa])$/, '') : '';
   const oral = /^(?:uso |via )?(?:oral|sublingual)$/.test(fold(route ?? ''));
-  const form = oral && simpleOralRules.get(single);
+  // Annex I, list A1, item 65 and its salts addendum. An opium preparation
+  // or combination has different conditions and cannot match this ingredient rule.
+  const morphine = oral && /^(?:morfina|sulfato de morfina(?: pentaidratado| pentahidratado)?)$/.test(single);
+  const form = oral && (morphine ? 'Notificação de Receita A' : simpleOralRules.get(single));
   const conflict = (exempt && prescribed) || (retained && noRetention) || (form && (exempt || noRetention));
   if (conflict) return { required: null, retained: null, form: null, conflict: true };
-  if (form) return { required: true, retained: true, form, rule, verifiedOn: '2026-11-26' };
+  if (form) return { required: true, retained: true, form, rule, ...(morphine && {list:'A1'}), verifiedOn: morphine ? '2026-11-28' : '2026-11-26' };
   return { required: prescribed ? true : exempt ? false : null,
     retained: noRetention || exempt ? false : retained ? true : null,
     form: exempt ? 'Isento de prescrição' : prescribed && noRetention ? 'Receita simples' : null };

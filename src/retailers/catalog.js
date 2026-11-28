@@ -1,3 +1,4 @@
+import { prescriptionInfo } from '../api/regulatory-info.js';
 import { matchesLabeledDropRequest } from '../api/presentation-label.js';
 import { validBarcode } from '../api/retail-prices.js';
 import { matchesDropListing } from './drop-listing.js';
@@ -19,6 +20,26 @@ export function catalogType(row) {
   return row.type ?? 'Não informado';
 }
 
+// A merchant's A/B/C list code is not a verified legal classification.
+function retailerPrescription(fields, ingredients, routes) {
+  const labels = values(fields['Prescrição Médica'], fields['Tipo de Receita']);
+  const retentionLabel = values(fields['Retenção de Receita']);
+  const evidence = [...labels, ...retentionLabel].join(' ');
+  const prescription = prescriptionInfo(evidence, '', ingredients.map(name => name.replace(/^com\s+/iu,'')),
+    routes.length === 1 ? routes[0] : null);
+  if (prescription.required === null && labels.some(label => /^sob prescri[çc][ãa]o(?: m[eé]dica)?$/iu.test(label)) && !prescription.conflict)
+    prescription.required = true;
+  const hasList = /\b(?:lista\s+)?[abc]\s*[-–]?\s*[1-5]\b/iu;
+  function generalLabel(label) {
+    if (!hasList.test(label)) return label;
+    if (/sem reten[çc][ãa]o/iu.test(label)) return 'Sem retenção de receita';
+    if (/(?:com|sujeit[ao] [aà]) reten[çc][ãa]o/iu.test(label)) return 'Com retenção de receita';
+    return null;
+  }
+  const prescriptionLabel = values(labels.map(generalLabel));
+  return {prescription, prescriptionLabel, retentionLabel:values(retentionLabel.map(generalLabel))};
+}
+
 // These are catalog labels. A missing regulatory field must remain unknown.
 export function medicationCard(row) {
   const fields = row.facts ?? {};
@@ -27,6 +48,7 @@ export function medicationCard(row) {
   const strengths = title.match(/\b\d+(?:[.,]\d+)?\s*(?:mcg|µg|mg|g|ui|%)(?:\s*\/\s*(?:\d+(?:[.,]\d+)?\s*)?(?:ml|g|h|dose|gota))?(?![\p{L}\p{N}]|\s*\/)/giu);
   const packs = title.replace(/\/\s*(?:\d+(?:[.,]\d+)?\s*)?ml\b/gi, '/').match(/\b\d+(?:[.,]\d+)?\s*(?:ml|comprimidos?|c[áa]psulas?|ampolas?|sach[eê]s?)\b/giu);
   const activeIngredients = values(row.activeIngredients, fields.NomeSubstanciaPrincipioAtivo, fields['Princípio Ativo']);
+  const routes = values(fields['Forma de Administração'], fields['Formas de Administração'], fields['Via de Administração']);
   const release = title.match(/\blibera[çc][ãa]o (?:imediata|prolongada|modificada|retardada|controlada)|\b(?:XR|SR|LP|CR)\b/gi);
   const forms = values(fields['Forma Farmacêutica'], fields.Apresentação, form ?? []);
   const liquid = /gotas?|solu[çc][ãa]o|suspens[ãa]o|xarope|col[ií]rio/iu.test([title,...forms].join(' '));
@@ -36,10 +58,9 @@ export function medicationCard(row) {
   return { sku: row.sku, gtin: row.gtin ?? null, name: title, type: catalogType(row), source: row.productUrl ?? null,
     activeIngredients, ingredientEvidence: row.ingredientEvidence ?? (activeIngredients.length ? {source:'retailer_field'} : null),
     strengths: [...uniqueDosages.values()], forms,
-    routes: values(fields['Forma de Administração'], fields['Formas de Administração'], fields['Via de Administração']),
+    routes,
     release: values(fields['Tipo de Liberação'], release ?? []), packs: values(fields.Quantidade, packs ?? []),
-    prescriptionLabel: values(fields['Prescrição Médica'], fields['Tipo de Receita']),
-    retentionLabel: values(fields['Retenção de Receita']), observedAt: row.observedAt ?? null };
+    ...retailerPrescription(fields,activeIngredients,routes), observedAt: row.observedAt ?? null };
 }
 
 // Explicit local labels stand on their own. For abbreviated labels, join a documented
