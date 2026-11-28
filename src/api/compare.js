@@ -68,10 +68,32 @@ function presentationTokens(value) {
     .match(/[\p{L}\d.]+(?:\/[\p{L}\d.]+)?/gu) ?? [];
 }
 
+// Some oral drops are indexed as "solução oral". Broaden retrieval only;
+// the original request must still match the product's own presentation.
+function dropSearchTerms(query) {
+  return query.replace(/\bgotas\b/giu, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function documentedDrops(product) {
+  const label = normalize([product.name, product.filters?.['Forma farmacêutica']].join(' '));
+  if (/\bgotas\b/.test(label)) return true;
+  if (!/\b(?:solucao|suspensao)\b/.test(label) || !/\boral\b/.test(normalize(
+    [label, product.filters?.['Via de administração']].join(' ')))) return false;
+  const brand = normalize(product.brand);
+  if (!brand) return false;
+  const description = normalize(String(product.productDescription ?? '').replace(/<[^>]*>/g, ' ')
+    .replace(/&([aeiou])(?:acute|circ|tilde|grave);/gi, '$1').replace(/&ccedil;/gi, 'c')
+    .replace(/(?:&reg;|®)/g, '').replace(/&nbsp;/g, ' '));
+  const prefixes = description.split(/[.:;!?]/).map(part => part.trim().replace(/^(?:a|o) /, ''));
+  return prefixes.some(part => part.startsWith(brand + ' ') &&
+    /^(?:solucao|suspensao)(?: oral)?(?: em)? gotas\b/.test(part.slice(brand.length + 1)));
+}
+
 function matchesRequest(product, query) {
   const requested = presentationTokens(query);
   const evidence = presentationTokens([product.name, product.filters?.['Forma farmacêutica'],
     product.filters?.['Via de administração'], product.details?.quantidade, ...(product.details?.dosageList ?? [])].join(' '));
+  if (requested.includes('gotas') && documentedDrops(product)) evidence.push('gotas');
   const packVolumes = presentationTokens(product.details?.quantidade).filter(t => /^\d+(?:\.\d+)?ml$/.test(t));
   return requested.length > 0 && requested.every(term =>
     evidence.includes(term) && (!/^\d+(?:\.\d+)?ml$/.test(term) || !packVolumes.length || packVolumes.includes(term)));
@@ -101,7 +123,8 @@ function describePresentation(product) {
   const label = normalize([product.name, product.brand, form, pack].join(' '));
   const markers = label.match(/\b(?:xr|xl|sr|cr|er|dr|la|lp|mr|retard|chrono|depot|orodispersivel|sublingual|mastigavel|efervescente|gastrorresistente|liberacao (?:prolongada|modificada|controlada|retardada|lenta|bifasica))\b/g) ?? [];
   // Titles disambiguate liquid concentrations and bottle counts missing from structured doses.
-  const liquidDetails = presentationTokens(product.name).filter(t => t.includes('/') || /^\d+frasco$/.test(t) || t === 'gotas');
+  const liquidDetails = presentationTokens(product.name).filter(t => t.includes('/') || /^\d+frasco$/.test(t));
+  if (documentedDrops(product)) liquidDetails.push('gotas');
   const signature = JSON.stringify([liquidDetails.sort(), doses.sort(), form, pack, normalize(product.filters?.['Via de administração']), [...new Set(markers)].sort()]);
   return { key: missing.size ? null : signature, signature, missingFields: [...missing] };
 }
@@ -133,7 +156,7 @@ function matchesRelease(product, release) {
 
 async function referenceOptions(query, release) {
   if (/^\d+$/.test(query)) return (await getProductsBySku([query])).filter(p => p && matchesRelease(p, release));
-  const candidates = (await searchAll(query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
+  const candidates = (await searchAll(dropSearchTerms(query) || query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
   const exact = candidates.filter(product => {
     const brandDose = [product.brand, ...(product.details?.dosageList ?? [])].join(' ');
     return [product.name, brandDose].some(value => normalize(value) === normalize(query));
@@ -167,7 +190,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
     refs = [];
   } else if (resolved?.filters) {
     const suffix = catalogQuery(resolved.suffix);
-    refs = await ingredientPresentations(lookup, { ...resolved, suffix }, includeUnpriced);
+    refs = await ingredientPresentations(lookup, { ...resolved, suffix:dropSearchTerms(suffix) }, includeUnpriced);
     refs = refs.filter(product => (!suffix || matchesRequest(product, suffix)) && matchesRelease(product, release));
     if (!refs.length && release === 'extended' && resolved.kind === 'brand') {
       const family = normalize(resolved.name);
@@ -182,6 +205,14 @@ export async function compareProducts(query, { origin = null, store, resolveName
   if (resolved?.kind === 'brand') {
     info.requestedBrandName = resolved.name;
     info.requestedBrandSkus = refs.map(p => String(p.sku));
+  }
+  if (!info.requestedBrandSkus && resolved?.kind === 'text') {
+    const brand = refs[0].brand;
+    if (brand && (normalize(query) + ' ').startsWith(normalize(brand) + ' ') &&
+        refs.every(p => normalize(p.brand) === normalize(brand))) {
+      info.requestedBrandName = brand;
+      info.requestedBrandSkus = refs.map(p => String(p.sku));
+    }
   }
   const descriptions = refs.map(describePresentation);
   const { key, signature, missingFields } = descriptions[0];

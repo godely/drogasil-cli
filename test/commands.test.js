@@ -276,3 +276,17 @@ test('explicit release selects the documented presentation and preserves dose an
     } else assert.deepEqual(skus, [], query);
   }
 });
+
+test('a branded oral solution qualifies as drops only with affirmative product evidence', async () => {
+  const base = {sku:81,brand:'Marca',name:'Marca Solução Oral 10mg/ml 60ml',price:10,
+    filters:{'Forma farmacêutica':'Solução'},details:{quantidade:'60ml',
+      activeIngredients:[{description:'Ingrediente',dosageValue:10,unitOfMeasurement:{name:'mg/ml'}}]}};
+  const drops = {...base,productDescription:'<p>Marca Solu&ccedil;&atilde;o Gotas de uso oral</p>'};
+  const other = {...base,sku:82,productDescription:'Outra Marca X solução gotas de uso oral'};
+  const page = {results:[{hits:[drops,other],nbPages:1}]};
+  const r = await run(['compare','Marca em gotas','--json'],[page,page]);
+  assert.equal(r.code,0);
+  assert.deepEqual(JSON.parse(r.stdout).map(p=>p.sku),[81]);
+  const wrong = await run(['compare','Marca em gotas 20ml','--json'],[page]);
+  assert.equal(wrong.code,3);
+});
