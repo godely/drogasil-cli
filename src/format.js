@@ -35,7 +35,7 @@ export function formatKm(value) {
 /** "AV CONSELHEIRO ..., 322 - ESPINHEIRO, RECIFE - PE" */
 export function formatAddress(address) {
   if (!address) return '';
-  const { addressLocal, addressNumber, district, city, sgState } = address;
+  const { addressLocal = address.street, addressNumber = address.number, district, city, sgState = address.state } = address;
   const street = [addressLocal, addressNumber].filter(Boolean).join(', ');
   const place = [district, city].filter(Boolean).join(', ');
   return [street, place, sgState].filter(Boolean).join(' - ');
