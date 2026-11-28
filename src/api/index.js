@@ -20,3 +20,4 @@ export { searchStockWindows, stockQuantity, STOCK_RADIUS_KM } from './stock-sear
 export { collectSnapshot, readSnapshot } from '../snapshots/index.js';
 export { compareRetailPrices, samePack } from './retail-prices.js';
 export { routeFinder } from './purchase-plans.js';
+export { getStoreDirectory } from './store-directory.js';

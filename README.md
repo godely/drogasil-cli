@@ -25,7 +25,7 @@ Or run in place with `node ./bin/drogasil.js …`.
 | `drogasil product <sku>…` | Algolia | Direct SKU lookup |
 | `drogasil stock <sku> --lat --lon` | GraphQL `getNearbyStockByLatLong` | Nearby stores with stock, nearest first |
 | `drogasil stock <sku> --cep <cep>` | GraphQL `getNearbyStockByZipCode` | Same, from a postal code |
-| `drogasil stores` | GraphQL `stores` | Full store directory with coordinates |
+| `drogasil stores` | GraphQL `stores` | Directory with branch names, published opening hours and contacts. Coordinates sort by straight-line distance. A CEP filters by the neighborhood or city reported by Drogasil |
 
 Every command accepts `--json` for the raw API shape and `--help` for its own usage.
 

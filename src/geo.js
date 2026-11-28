@@ -18,7 +18,7 @@ export function haversineKm(a, b) {
   const s =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(s));
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(Math.min(1, s)));
 }
 
 // Number('') and Number('  ') are 0, which would turn a missing value into a
