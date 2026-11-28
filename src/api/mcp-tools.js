@@ -1,4 +1,5 @@
 import { searchBrandPage } from '../retailers/presentation-search.js';
+import { DEFAULT_SNAPSHOT_QUERY } from '../snapshots/index.js';
 import { compareRetailPrices, collectSnapshot, readSnapshot, compareProducts, medicationSearch, getProductsBySku, searchStockWindows, stockQuantity, planPurchase, getMedicationInfo, productInfo } from './index.js';
 
 const shoppingRoute = 'For purchase or stock requests naming a commercial brand, ask once which named brands may include generics and wait for the reply before using any Drogasil tool. An explicit preference or exact SKU settles only its own item. For stock or purchase planning, send every item to plan_purchase together once preferences are settled.';
@@ -6,6 +7,10 @@ const radiusRoute = 'If coverage.canExpand, report checkedStores and radiusKm (s
 const factsRoute = 'For questions about medication forms, strengths, routes, packs or prescriptions, use only get_medication_info with all names or exact SKUs in one call.';
 
 export const shoppingInstructions = [shoppingRoute, radiusRoute, factsRoute].join(' ');
+
+export function snapshotQueriesSchema(z) {
+  return z.array(z.string().trim().min(1).max(150)).min(1).max(10).default([DEFAULT_SNAPSHOT_QUERY]);
+}
 
 function storeInfo(branch, quantity) {
   return { id: branch.id, name: branch.businessName, distanceKm: branch.distanceKMFromSearch,
@@ -73,7 +78,7 @@ export function registerDrogasilTools(server, z, retailers) {
     ({ query, ...options }) => compareRetailPrices(query, { ...options, retailers }));
   server.registerTool('collect_catalog_snapshot', {
     description: 'Start an explicitly requested bulk storefront collection. This saves an anonymous catalog dataset. Poll the same run ID with read_catalog_snapshot.',
-    inputSchema: { queries: z.array(z.string().trim().min(1).max(150)).min(1).max(10), maxItems: z.number().int().min(1).max(1000).default(20) },
+    inputSchema: { queries: snapshotQueriesSchema(z), maxItems: z.number().int().min(1).max(1000).default(20) },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ queries, maxItems }) => {
     const result = await collectSnapshot(queries, { background: true, maxItems });

@@ -6,6 +6,35 @@ import path from 'node:path';
 import { collectSnapshot, readSnapshot } from '../src/snapshots/index.js';
 import { catalogSnapshot } from '../src/retailers/catalog.js';
 
+test('an omitted query collects the first 20 paracetamol products, explicit empty inputs fail before collection', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'snapshot-default-'));
+  const previous = process.env.DROGASIL_SNAPSHOT_DB;
+  process.env.DROGASIL_SNAPSHOT_DB = path.join(dir, 'runs.sqlite');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DROGASIL_SNAPSHOT_DB;
+    else process.env.DROGASIL_SNAPSHOT_DB = previous;
+    await rm(dir, { recursive: true, force: true });
+  });
+  const searches = [];
+  const sources = {
+    search: async query => {
+      searches.push(query);
+      return {hits: Array.from({length:25}, (_, i) => ({sku:String(i + 1)})), nbPages:1};
+    },
+    read: async ({sku}, searchQuery) => ({snapshot:{sku, searchQuery}}),
+  };
+  for (const invalid of [null, [], [''], ['  '], ['shampoo', ' ']]) {
+    await assert.rejects(collectSnapshot(invalid, {}, sources), TypeError);
+  }
+  assert.deepEqual(searches, []);
+  const implicit = await collectSnapshot(undefined, {}, sources);
+  const explicit = await collectSnapshot(['paracetamol'], {}, sources);
+  assert.equal(implicit.state, 'succeeded');
+  assert.equal(implicit.count, 20);
+  assert.deepEqual(implicit.records, explicit.records);
+  assert.deepEqual(searches, ['paracetamol', 'paracetamol']);
+});
+
 test('deduplication, partial failures and page offsets survive independent reads', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'catalog-snapshot-'));
   const previous = process.env.DROGASIL_SNAPSHOT_DB;
