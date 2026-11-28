@@ -6,6 +6,34 @@ import path from 'node:path';
 import { collectSnapshot, readSnapshot } from '../src/snapshots/index.js';
 import { catalogSnapshot } from '../src/retailers/catalog.js';
 
+test('simultaneous collections persist every run when the snapshot database is new', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'snapshot-first-use-'));
+  const previous = process.env.DROGASIL_SNAPSHOT_DB;
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DROGASIL_SNAPSHOT_DB;
+    else process.env.DROGASIL_SNAPSHOT_DB = previous;
+    await rm(dir, { recursive: true, force: true });
+  });
+  for (let batch = 0; batch < 4; batch++) {
+    process.env.DROGASIL_SNAPSHOT_DB = path.join(dir, batch + '.sqlite');
+    const queries = Array.from({length:6}, (_, i) => 'term' + i);
+    const source = {
+      search: async () => ({hits:[{sku:'123'}], nbPages:1}),
+      read: async ({sku}, searchQuery) => ({snapshot:{sku, searchQuery}}),
+    };
+    const results = await Promise.allSettled(queries.map(query => collectSnapshot([query], {}, source)));
+    const ids = new Set();
+    for (const [i, result] of results.entries()) {
+      assert.equal(result.status, 'fulfilled', result.reason?.message);
+      assert.equal(result.value.state, 'succeeded', result.value.error);
+      ids.add(result.value.runId);
+      const stored = await readSnapshot(result.value.runId);
+      assert.deepEqual(stored.records, [{sku:'123', searchQuery:queries[i]}]);
+    }
+    assert.equal(ids.size, queries.length);
+  }
+});
+
 test('an omitted query collects the first 20 paracetamol products, explicit empty inputs fail before collection', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'snapshot-default-'));
   const previous = process.env.DROGASIL_SNAPSHOT_DB;
