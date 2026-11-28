@@ -172,3 +172,29 @@ test('explicit brand can include a qualifier from the matched commercial present
   const result = await planPurchase([{ query: 'Alpha GTS', brand: 'Alpha GTS', includeGenerics: false }], { origin });
   assert.deepEqual(result.tables[0].rows.map(p => p.sku), ['11']);
 });
+
+test('a chosen ingredient pack is one shopping line across manufacturers', async t => {
+  const { products, inventory, calls } = fixture(t);
+  for (const p of products.slice(0, 2)) p.filters = {};
+  products[1].details.quantidade = '10 comprimidos revestidos';
+  inventory[12] = [0, 0, 0];
+  let result = await planPurchase(['Example 1mg 10 comprimidos'], { origin });
+  let [table] = result.tables;
+  assert.equal(table.matchBasis, 'direct_requested_pack');
+  assert.deepEqual(calls.sort(), ['11', '12']);
+  assert.deepEqual(table.rows.map(row => row.sku), ['11']);
+  assert.equal(table.lowestPricedStockedOption, table.rows[0].option);
+  assert.equal(result.coverage.canExpand, false);
+  inventory[11] = [0, 0, 0];
+  result = await planPurchase(['Example 1mg 10 comprimidos'], { origin });
+  assert.equal(result.coverage.canExpand, true);
+  assert.equal(result.tables[0].lowestPricedStockedOption, undefined);
+  inventory[11] = [null, 0, 0];
+  result = await planPurchase(['Example 1mg 10 comprimidos'], { origin });
+  assert.equal(result.coverage.canExpand, false);
+  assert.equal(result.tables[0].unknown.length, 1);
+  inventory[12] = [1, 0, 0];
+  const multi = await planPurchase(['Example 1mg 10 comprimidos', 'Beta 1mg'], { origin });
+  assert.equal(multi.tables[0].needsSelection, true);
+  assert.deepEqual(multi.plans[0].unfilled, ['A']);
+});
