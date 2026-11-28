@@ -70,7 +70,7 @@ export function verifiedRow(row, intent, { ingredients = [], evidence } = {}) {
 export function medicationCatalog(source, { searchVerified, intentFor = medicationIntent }) {
   const adapter = {...source,
     async search(query,page=1,limit=20) {
-      if (!Number.isSafeInteger(page)||page<1||!Number.isSafeInteger(limit)||limit<1||limit>50) throw new TypeError('Invalid page or limit');
+      if (!Number.isSafeInteger(page)||page<1||!Number.isSafeInteger(limit)||limit<1||limit>1000) throw new TypeError('Invalid page or limit');
       if (/^\d+$/.test(query.trim())) return source.search(query,page,limit);
       const intent = await intentFor(query);
       if (intent.suggestions.length) return [];

@@ -80,6 +80,7 @@ async function prepareItem(item, label, catalog, expandSku) {
   // A literal SKU is a purchase preference. compareProducts itself still
   // expands exact SKUs for existing catalog-comparison callers.
   const requiredSku = item.selectedSku ?? (!expandSku && /^\d+$/.test(item.query) ? item.query : null);
+  if (requiredSku === item.query && !item.brand && brandSkus == null) brandSkus = [requiredSku];
   const namedPresentation = p => brandSkus?.includes(String(p.sku)) && result.requestedBrandName &&
     fold(item.brand).startsWith(fold(result.requestedBrandName) + ' ') &&
     (fold(p.name) + ' ').startsWith(fold(item.brand) + ' ');

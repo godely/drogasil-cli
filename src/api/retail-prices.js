@@ -39,7 +39,7 @@ export function samePack(anchor, row) {
 }
 function reference(p) { return { ...productInfo(p), gtin: String(p.eanCode ?? ''), itemName: p.name }; }
 
-export async function compareRetailPrices(input, { zipcode, retailers, includeGenerics = false }) {
+export async function compareRetailPrices(input, { zipcode, retailers, includeGenerics = false, includeDrogasil = true }) {
   const query = String(input).trim();
   zipcode = normalizeCep(zipcode);
   const exactGtin = validBarcode(query);
@@ -62,12 +62,12 @@ export async function compareRetailPrices(input, { zipcode, retailers, includeGe
   const unique = new Map(hits.map(p => [String(p.sku),p]));
   if (unique.size > 1) return { status: 'ambiguous', candidates: [...unique.values()].map(reference) };
   const hit = [...unique.values()][0];
-  if (!hit && !exactGtin) return { status: 'no_reference', verifiedOffers: [], onlineOffers: [], checkedRetailers:[{ retailer:'Drogasil', status:'no_exact_match' }] };
+  if (!hit && !exactGtin) return { status: 'no_reference', verifiedOffers: [], onlineOffers: [], checkedRetailers:includeDrogasil ? [{ retailer:'Drogasil', status:'no_exact_match' }] : [] };
   let anchor = hit ? { ...reference(hit), retailer: 'Drogasil' } : null;
   if (anchor && !validBarcode(anchor.gtin)) return { status: 'missing_gtin', reference:anchor };
   const verifiedOffers = [], onlineOffers = [], checked = [], issues = [];
-  if (!hit) checked.push({ retailer: 'Drogasil', status: catalogFailed ? 'source_failed' : 'no_exact_match' });
-  else try {
+  if (includeDrogasil && !hit) checked.push({ retailer: 'Drogasil', status: catalogFailed ? 'source_failed' : 'no_exact_match' });
+  else if (includeDrogasil) try {
     const { snapshot } = await readStorefront(hit,query);
     onlineOffers.push({ retailer:'Drogasil', sku:anchor.sku, gtin:anchor.gtin, name:anchor.name, seller:snapshot.seller,
       currentPrice:snapshot.currentPrice,listPrice:snapshot.listPrice,inStock:snapshot.inStock, currency:'BRL', type:anchor.type,

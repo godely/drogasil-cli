@@ -1,4 +1,5 @@
 import { searchProducts } from '../api/index.js';
+import { searchBrandPage } from '../retailers/presentation-search.js';
 import { medicationType } from '../api/product-info.js';
 import { printJson, table, formatPrice } from '../format.js';
 
@@ -37,7 +38,8 @@ export async function run(positionals, values) {
   }
 
   // Algolia pages are zero-based; the CLI is one-based like the footer below.
-  const result = await searchProducts(query, { hitsPerPage: limit, page: page - 1 });
+  const options = { hitsPerPage: limit, page: page - 1 };
+  const result = await searchBrandPage(query,options) ?? await searchProducts(query,options);
 
   if (values.json) {
     printJson(result);
@@ -50,7 +52,7 @@ export async function run(positionals, values) {
   }
 
   const rows = result.hits.map((h) => [h.sku, h.name, medicationType(h), h.brand ?? '', formatPrice(h.price)]);
-  process.stdout.write(table(['SKU', 'NAME', 'BRAND', 'PRICE'], rows) + '\n');
+  process.stdout.write(table(['SKU', 'NAME', 'TYPE', 'BRAND', 'PRICE'], rows) + '\n');
   if (result.nbPages > 1) {
     process.stdout.write(`\npage ${result.page + 1} of ${result.nbPages} (${result.nbHits} hits)\n`);
   }
