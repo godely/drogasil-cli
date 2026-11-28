@@ -1,11 +1,12 @@
 import { searchBrandPage } from '../retailers/presentation-search.js';
 import { compareRetailPrices, collectSnapshot, readSnapshot, compareProducts, medicationSearch, getProductsBySku, searchStockWindows, stockQuantity, planPurchase, getMedicationInfo, productInfo } from './index.js';
 
+const productNames = 'Accept a supplied SKU silently. Never ask for, mention, or display a SKU, its value, or a barcode in any user-facing reply, including errors and follow-ups. Identify products by name and presentation. Offer numbered choices when clarification is needed.';
 const shoppingRoute = 'For purchase or stock requests naming a commercial brand, ask once which named brands may include generics and wait for the reply before using any Drogasil tool. An explicit preference or exact SKU settles only its own item. For stock or purchase planning, send every item to plan_purchase together once preferences are settled.';
 const radiusRoute = 'If coverage.canExpand, report checkedStores and radiusKm (straight line) and ask whether to expand to 25 km. Wait for consent, then repeat the same request with expandSearch=true. Show expandedSearch.stores in distance order, quantities, address and any branch phone. Recommend calling before travelling. Report partial coverage and stop at 25 km. ';
 const factsRoute = 'For questions about medication forms, strengths, routes, packs or prescriptions, use only get_medication_info with all names or exact SKUs in one call.';
 
-export const shoppingInstructions = [shoppingRoute, radiusRoute, factsRoute].join(' ');
+export const shoppingInstructions = [productNames, shoppingRoute, radiusRoute, factsRoute].join(' ');
 
 function storeInfo(branch, quantity) {
   return { id: branch.id, name: branch.businessName, distanceKm: branch.distanceKMFromSearch,
@@ -21,7 +22,7 @@ export function registerDrogasilTools(server, z, retailers) {
   ]).describe('CEP or exact coordinates explicitly supplied for this lookup.');
   const expandSearch = z.boolean().optional().describe('Set true only after the user accepts the offered 25 km search.');
   function tool(name, description, inputSchema, handler) {
-    server.registerTool(name, { description, inputSchema,
+    server.registerTool(name, { description: description + ' ' + productNames, inputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true } }, async args => {
       const result = await handler(args);
       return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
@@ -71,7 +72,7 @@ export function registerDrogasilTools(server, z, retailers) {
     { query, zipcode: z.string().regex(/^\d{5}-?\d{3}$/), includeGenerics: z.boolean().default(false) },
     ({ query, zipcode, includeGenerics }) => compareRetailPrices(query, { zipcode, retailers, includeGenerics }));
   server.registerTool('collect_catalog_snapshot', {
-    description: 'Start an explicitly requested bulk storefront collection. This saves an anonymous catalog dataset. Poll the same run ID with read_catalog_snapshot.',
+    description: productNames + ' Start an explicitly requested bulk storefront collection. This saves an anonymous catalog dataset. Poll the same run ID with read_catalog_snapshot.',
     inputSchema: { queries: z.array(z.string().trim().min(1).max(150)).min(1).max(10), maxItems: z.number().int().min(1).max(1000).default(20) },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   }, async ({ queries, maxItems }) => {

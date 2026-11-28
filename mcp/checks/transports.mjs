@@ -26,6 +26,8 @@ for (const kind of ['http', 'stdio']) {
     t.after(() => client.close());
     await client.connect(transport);
     const { tools } = await client.listTools();
+    assert.match(client.getInstructions(), /Accept a supplied SKU silently/);
+    assert.ok(tools.every(tool => tool.description.includes('Never ask for, mention, or display a SKU')));
     assert.deepEqual(tools.map(tool => tool.name).sort(),
       ['collect_catalog_snapshot', 'compare_pharmacy_prices', 'compare_products', 'find_nearby_stock', 'get_medication_info', 'get_products', 'plan_purchase', 'read_catalog_snapshot', 'search_products']);
     assert.ok(tools.every(tool => tool.annotations.readOnlyHint === (tool.name !== 'collect_catalog_snapshot')));
