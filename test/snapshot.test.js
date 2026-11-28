@@ -6,6 +6,12 @@ import path from 'node:path';
 import { collectSnapshot, readSnapshot } from '../src/snapshots/index.js';
 import { catalogSnapshot } from '../src/retailers/catalog.js';
 
+test('paginated reads stay consistent with concurrent SQLite commits and collector exits', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  execFileSync('python3', [fileURLToPath(new URL('./snapshot-read-concurrency.py', import.meta.url))], {stdio: 'pipe'});
+});
+
 test('simultaneous collections persist every run when the snapshot database is new', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'snapshot-first-use-'));
   const previous = process.env.DROGASIL_SNAPSHOT_DB;
