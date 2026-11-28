@@ -130,6 +130,28 @@ function matchesRelease(product, release) {
     (immediateLabel.test(label) || documentedConventionalTablet(product));
 }
 
+// A partner may sell a pack absent from the reference catalog. Accept it on
+// literal brand and presentation evidence. An unlabeled conventional tablet
+// needs independent release evidence, supplied separately by the barcode match.
+export function literalBrandPack(row, query, brand) {
+  const name = normalize(row.name);
+  const label = normalize(brand);
+  if (name !== label && !name.startsWith(label+' ') && normalize(row.brand)!==label) return false;
+  if (/\b(?:kit|brinde|gratis)\b|\+\s*(?:\d+\s*)?porta[- ]?comprimidos?/.test(name)) return false;
+  const facts=row.facts??{};
+  const product={name:row.name,brand:row.brand,filters:{'Forma farmacêutica':facts['Forma Farmacêutica']},
+    details:{quantidade:facts.Quantidade,dosageList:[facts.Dosagem].flat().filter(Boolean)}};
+  const request=normalize(query);
+  const immediate=immediateLabel.test(request), extended=extendedLabel.test(request);
+  if (immediate && (extended || otherModifiedLabel.test(request))) return false;
+  const releaseEvidence=normalize([name,facts['Tipo de Liberação']].join(' '));
+  if (immediate && (!immediateLabel.test(releaseEvidence) || extendedLabel.test(releaseEvidence) || otherModifiedLabel.test(releaseEvidence))) return false;
+  if (extended && (!extendedLabel.test(releaseEvidence) || immediateLabel.test(releaseEvidence))) return false;
+  const terms=catalogQuery(query).replace(/\b(?:de\s+)?libera[çc][ãa]o\s+(?:imediata|convencional|prolongada|lenta)\b|\b(?:immediate|extended)[- ]release\b|\bir\b/gi,' ')
+    .replace(/\bgts\b/gi, /\bgotas?\b/.test(name)?'gotas':'GTS');
+  return matchesRequest(product,terms);
+}
+
 async function referenceOptions(query, release) {
   if (/^\d+$/.test(query)) return (await getProductsBySku([query])).filter(p => p && matchesRelease(p, release));
   const candidates = (await searchAll(query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));

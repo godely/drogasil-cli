@@ -1,3 +1,4 @@
+import { searchBrandPage } from '../retailers/presentation-search.js';
 import { compareRetailPrices, collectSnapshot, readSnapshot, compareProducts, medicationSearch, getProductsBySku, searchStockWindows, stockQuantity, planPurchase, getMedicationInfo, productInfo } from './index.js';
 
 const shoppingRoute = 'For purchase or stock requests naming a commercial brand, ask once which named brands may include generics and wait for the reply before using any Drogasil tool. An explicit preference or exact SKU settles only its own item. For stock or purchase planning, send every item to plan_purchase together once preferences are settled.';
@@ -37,7 +38,8 @@ export function registerDrogasilTools(server, z, retailers) {
   tool('search_products', 'Literal catalog search when the user asks for product listings or SKU discovery. Returns reference prices. ' + factsRoute + ' ' + shoppingRoute,
     { query, page: z.number().int().min(1).default(1), limit: z.number().int().min(1).max(100).default(20) },
     async ({ query, page, limit }) => {
-      const result = await medicationSearch(query, { page: page - 1, hitsPerPage: limit });
+      const options={page:page-1,hitsPerPage:limit};
+      const result = await searchBrandPage(query,options) ?? await medicationSearch(query,options);
       const { status, interpretation, ingredientCandidates, nameCandidates, hint } = result;
       return { status, interpretation, ingredientCandidates, nameCandidates, hint, page, pages: result.nbPages, products: result.hits.map(productInfo) };
     });
