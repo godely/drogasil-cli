@@ -53,6 +53,7 @@ export function medicationFacts(product) {
   const source = typeof product.url === 'string' && /^[\w%-][\w%./-]*\.html$/i.test(product.url) ?
     'https://www.drogasil.com.br/' + product.url : null;
   return { sku: String(product.sku), name: title, type: medicationType(product), registration: details.ms ?? null,
+    manufacturer:details.fabricante ?? null, manufacturerSource:details.fabricante ? source : null,
     ingredients, form: drops ? dropForm : form,
     route, ...(routeConflict && {routeStatus:'conflicting_evidence'}), release, pack, source,
     prescription: prescriptionInfo(details.descricao_tarja, description || body, ingredients.map(a => a.name), route) };

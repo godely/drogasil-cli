@@ -55,7 +55,10 @@ export function medicationCard(row) {
   const dosage = values(fields.Dosagem, strengths ?? []).filter(value => !liquid ||
     /(?:%|\/\s*(?:\d+(?:[.,]\d+)?\s*)?(?:mL|L|g|h|dose|gotas?))$/iu.test(value.trim()));
   const uniqueDosages = new Map(dosage.map(value => [value.toLowerCase().replace(/\s+/g, '').replace(',', '.'), value]));
+  const makers = values(fields.Fabricante, row.manufacturer);
+  const manufacturer = makers.length === 1 ? makers[0] : null;
   return { sku: row.sku, gtin: row.gtin ?? null, name: title, type: catalogType(row), source: row.productUrl ?? null,
+    manufacturer, manufacturerSource:manufacturer ? row.manufacturerSource ?? row.productUrl ?? null : null,
     activeIngredients, ingredientEvidence: row.ingredientEvidence ?? (activeIngredients.length ? {source:'retailer_field'} : null),
     strengths: [...uniqueDosages.values()], forms,
     routes,
@@ -116,8 +119,13 @@ export async function catalogInfo({retailer, queries, page = 1, limit = 20, scop
         products = found.cards.slice((page-1)*limit, page*limit);
         issues = found.issues;
       } else {
-        const rows = source.facts ? await source.facts(query,page,limit)
-          : bySku ? await source.product(query) : await source.search(query,page,limit);
+        let rows;
+        if (source.factsPage) {
+          ({rows, issues} = await source.factsPage(query, page, limit));
+        } else {
+          rows = source.facts ? await source.facts(query,page,limit)
+            : bySku ? await source.product(query) : await source.search(query,page,limit);
+        }
         products = [...new Map(rows.map(row => [row.sku, medicationCard(row)])).values()];
       }
       const status = issues.length ? (products.length ? 'partial' : 'source_failed') :

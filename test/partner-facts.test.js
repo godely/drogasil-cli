@@ -31,3 +31,20 @@ test('classify oral morphine from the official rule even when a merchant labels 
     assert.deepEqual(other.prescriptionLabel,['Com retenção de receita']);
   }
 });
+
+test('manufacturer provenance stays separate from the product label and seller brand',async () => {
+  const {medicationCard} = await import('drogasil-cli/retailer-workflows');
+  const row = {name:'Produto de marca',brand:'Marca da rede',productUrl:'https://example.test/loja'};
+  assert.equal(medicationCard(row).manufacturer,null);
+  assert.equal(medicationCard({...row,facts:{Fabricante:['Produtor']}}).manufacturerSource,row.productUrl);
+  const reference = {manufacturer:'Produtor',manufacturerSource:'https://example.test/ficha'};
+  assert.equal(medicationCard({...row,...reference}).manufacturerSource,reference.manufacturerSource);
+  assert.equal(medicationCard({...row,...reference,facts:{Fabricante:['Outro']}}).manufacturer,null);
+});
+
+test('a failed manufacturer cross-check preserves independent local facts as partial',async () => {
+  const source = {factsPage:async () => ({rows:[{sku:'1',name:'Produto'}],issues:['manufacturer_lookup_failed']})};
+  const result = await catalogInfo({retailer:'partner', queries:['Produto']},source);
+  assert.equal(result.results[0].status,'partial');
+  assert.equal(result.results[0].products.length,1);
+});
