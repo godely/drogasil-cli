@@ -84,3 +84,30 @@ test('prolonged release requires matching registered packs and explicit retailer
     assert.deepEqual(result.products,[]);
   }
 });
+
+test('a listed similar stays first and remains the only product eligible for its own basket', async()=>{
+  const listed={...brand,sku:'brand-local',gtin:brand.eanCode,brand:'Fabricante',type:'Similar',currentPrice:27,
+    facts:{Apresentação:['Em Comprimido']}};
+  const source={
+    search:async q=>q.toLowerCase().startsWith('sinvasmax')?[listed]:[generic],
+    product:async()=>[listed],
+  };
+  const ref={byGtin:()=>assert.fail('the registered retailer listing identifies the brand')};
+  const compared=await retailerComparison(request,source,ref);
+  assert.equal(compared.requestedBrand.status,'listed');
+  assert.equal(compared.status,'matches');
+  assert.deepEqual(compared.products.map(p=>[p.name,p.role]),[[listed.name,'requested']]);
+  assert.deepEqual(compared.comparisonOptions.map(p=>p.name),[generic.name]);
+  assert.doesNotMatch(purchaseCatalogNotice(compared),/não encontrou a caixa/);
+  const wrong=await retailerComparison({...request,query:'Sinvasmax 20 mg 60 comprimidos'},source,ref);
+  assert.equal(wrong.status,'no_match');
+  assert.deepEqual(wrong.products,[]);
+  const declined=await retailerComparison({...request,includeGenerics:false},source,ref);
+  assert.equal(declined.comparisonOptions,undefined);
+  const id=await retailerComparison({...request,query:'1234'},source,ref);
+  assert.equal(id.requestedBrand.status,'listed');assert.equal(id.comparisonOptions.length,1);
+  const failure={...source,search:async q=>{if(q.toLowerCase().startsWith('sinvasmax')) return [listed]; throw Error('offline')}};
+  const partial=await retailerComparison(request,failure,ref);
+  assert.equal(partial.comparisonStatus,'source_failed');
+  assert.equal(partial.products[0].sku,listed.sku);
+});

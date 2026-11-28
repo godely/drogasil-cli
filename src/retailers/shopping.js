@@ -2,7 +2,7 @@ import { fold, resolveMedication } from '../api/medications.js';
 import { documentedDrops, matchesLabeledDropRequest, requestsDrops } from '../api/presentation-label.js';
 import { matchesDropListing } from './drop-listing.js';
 import { countedOffers } from './counted-offers.js';
-import { compareRegisteredBrand } from './registered-packs.js';
+import { compareListedSimilar, compareRegisteredBrand } from './registered-packs.js';
 import { compareProducts, medicationType, samePack, searchProducts } from '../api/index.js';
 import { validBarcode as validGtin } from '../api/retail-prices.js';
 import { catalogType } from './catalog.js';
@@ -119,6 +119,8 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
   if (!includeGenerics) return result;
   const [anchor] = originals;
   if (!validGtin(anchor.gtin??'') || originals.some(r=>r.gtin!==anchor.gtin)) return {...result,status:'incomplete_presentation',missingFields:['verified_barcode']};
+  const registered = await compareListedSimilar(retailer, originals, query, source);
+  if (registered) return {...result,...registered};
   let equivalents;
   try {
     const refs=(await reference.byGtin(anchor.gtin)).filter(p=>samePack(anchor,{name:p.name,gtin:String(p.eanCode)}));

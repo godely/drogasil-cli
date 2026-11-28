@@ -26,13 +26,15 @@ const catalogNotes = {
 
 export function purchaseCatalogNotice(table) {
   if (table.comparisonOptions?.length) {
-    const out = ['A busca não encontrou a caixa de ' + table.requestedBrand.name + ' nessa rede. Para comparar a apresentação:'];
+    const out = [table.requestedBrand.status==='listed'
+      ? 'Genéricos com apresentação documentada para comparar com '+table.requestedBrand.name+':'
+      : 'A busca não encontrou a caixa de ' + table.requestedBrand.name + ' nessa rede. Para comparar a apresentação:'];
     for (const row of table.comparisonOptions) {
       const price = formatPrice(row.currentPrice) || 'preço não informado';
       const pickup = row.closestQuotedPickup ?? row.methods?.find(m=>m.channel==='pickup-in-point' && m.pickupPointId);
       let note = '';
       if (row.localStatus === 'available' && pickup) {
-        note = ' · retirada de ' + row.requestedQuantity + ' caixa(s) em ' + (pickup.branch || 'filial indicada pela rede');
+        note = ' · retirada de ' + row.requestedQuantity + (row.requestedQuantity===1?' caixa em ':' caixas em ') + (pickup.branch || 'filial indicada pela rede');
         if (row.closestQuotedPickup) note += ' ' + formatKm(pickup.distanceKm);
       } else if (row.localStatus) {
         note = row.localStatus === 'unavailable' || row.pickupAtStore === 'not_offered' ? ' · retirada não oferecida' : ' · retirada sem confirmação';
@@ -42,6 +44,11 @@ export function purchaseCatalogNotice(table) {
     if (table.comparisonStatus==='partial' || table.comparisonQuoteStatus==='partial') out.push('A consulta à rede ficou incompleta.');
     out.push('A Anvisa orienta que um genérico não substitui diretamente um similar prescrito. ' + table.registeredPresentation.guidanceUrl);
     return out.join('\n');
+  }
+  if (table.requestedBrand?.status==='listed') {
+    if (table.comparisonStatus==='source_failed' || table.comparisonStatus==='partial') return 'A consulta aos genéricos ficou incompleta.';
+    if (table.comparisonStatus==='unverified_reference_presentation') return 'Os detalhes disponíveis não confirmam a mesma apresentação para comparar um genérico.';
+    if (table.comparisonStatus==='no_verified_generic') return 'A busca não confirmou genéricos com a mesma apresentação.';
   }
   if (table.comparisonStatus === 'unverified_reference_presentation') {
     return 'A busca não encontrou a caixa de ' + table.requestedBrand.name + ' nessa rede. Os dados disponíveis não confirmam a mesma apresentação para comparar um genérico. O estoque ficou sem confirmação.';

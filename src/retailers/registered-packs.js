@@ -144,7 +144,8 @@ export async function compareRegisteredBrand(retailer, originals, brand, source,
     substitution:'not_interchangeable_with_generic',guidanceUrl};
   const base = {registeredPresentation:evidence,comparisonOptions:[]};
   if (!ref.pack || !compatibleQuery(request,ref.pack,observedRelease(anchor,ref.pack)) ||
-      !originals.every(p=>String(p.eanCode)===String(anchor.eanCode) && agreesWithListing(p,ref.pack))) {
+      !originals.every(p=>String(p.eanCode)===String(anchor.eanCode) &&
+        registeredPresentation(p.eanCode,p.details?.ms)?.category===ref.category && agreesWithListing(p,ref.pack))) {
     return {...base,comparisonStatus:'unverified_reference_presentation'};
   }
   const {ingredient,strength,unit,count,form}=ref.pack;
@@ -174,4 +175,23 @@ export async function compareRegisteredBrand(retailer, originals, brand, source,
   }
   const comparisonOptions=[...offers.values()].sort((a,b)=>(a.currentPrice??Infinity)-(b.currentPrice??Infinity) || String(a.name).localeCompare(String(b.name),'pt-BR'));
   return {...base,comparisonOptions,comparisonStatus:complete?(offers.size?'documented':'no_verified_generic'):'partial'};
+}
+
+// A listed brand can be verified directly at the selected retailer. Keep that
+// retailer's listing as the basket option while quoting generics separately.
+export async function compareListedSimilar(retailer, originals, request, source) {
+  const [anchor] = originals;
+  const records = packRegistry().byCode.get(String(anchor.gtin)) ?? [];
+  const named = records.find(row=>row.category==='Similar' &&
+    (normalize(anchor.name)+' ').startsWith(normalize(row.name)+' ') &&
+    (/^\d+$/.test(request) || (normalize(request)+' ').startsWith(normalize(row.name)+' ')));
+  if (!named) return null;
+  const brand = named.name;
+  const adapted = originals.map(row=>({...row,eanCode:row.gtin,details:{...row.details,ms:row.facts?.NumeroRegistroMS ?? row.details?.ms}}));
+  const ref = registeredPresentation(anchor.gtin,adapted[0].details.ms);
+  if (ref?.pack && !/^\d+$/.test(request) && !compatibleQuery(request,ref.pack,observedRelease(anchor,ref.pack))) {
+    return {status:'no_match',products:[],requestedBrand:{name:brand,status:'requested_presentation_conflicts_with_listing'}};
+  }
+  const comparison = await compareRegisteredBrand(retailer,adapted,brand,source,request);
+  return comparison && {...comparison,requestedBrand:{name:brand,status:'listed'},scope:'direct_requested_pack'};
 }
