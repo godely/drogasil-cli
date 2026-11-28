@@ -27,9 +27,9 @@ export async function run(queries, values) {
     }
     if (r.products.length) lines.push('Catálogo Drogasil');
     for (const p of r.products) {
-      lines.push([p.name, p.type, 'SKU ' + p.sku].join(' · '));
+      lines.push([p.name, p.type].join(' · '));
       lines.push('Princípios ativos: ' + (p.ingredients.map(a => [a.name, a.strength ?? unknown].join(' ')).join(' + ') || unknown));
-      lines.push('Forma: ' + (p.form ?? unknown) + ' · Via: ' + (p.route ?? unknown) + ' · Liberação: ' +
+      lines.push('Forma: ' + (p.form ?? unknown) + ' · Via: ' + (p.routeStatus === 'conflicting_evidence' ? 'não confirmada (a ficha traz informações divergentes)' : p.route ?? unknown) + ' · Liberação: ' +
         (p.release ?? unknown) + ' · Embalagem: ' + (p.pack ?? unknown));
       const rx = p.prescription;
       lines.push('Precisa de receita? ' + answer(rx.required) + ' · A farmácia retém? ' + answer(rx.retained) +
