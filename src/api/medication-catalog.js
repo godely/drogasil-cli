@@ -104,7 +104,43 @@ export async function medicationIntent(input, getIndex = medicationIndex) {
     suggestions:[...suggested].slice(0,50).map(name=>[name,suffix].filter(Boolean).join(' '))};
 }
 
+// An explicitly named retail brand can be before or after its product line.
+// Require the complete brand beside the line on the actual pack title. This
+// evidence is for a literal shopping name, never ingredient equivalence.
+export function matchesRetailBrandLine(row, query) {
+  const input = tokens(query), title = tokens(row.name), brand = tokens(row.brand);
+  if (!brand.length || !contains(input,brand) || !contains(title,brand)) return false;
+  const measure = input.findIndex(word => /^\d/.test(word));
+  const names = measure === -1 ? input : input.slice(0,measure);
+  // A package volume may follow the line. Dose, combination, pack count or
+  // release constraints need the normal presentation matcher.
+  if (measure !== -1 && (measure !== input.length - 1 || !/^\d+(?:\.\d+)?ml$/.test(input[measure]) ||
+      !title.includes(input[measure]))) return false;
+  const label = clean(row.name);
+  if (/\b(?:kit|combo|sem|para|compativel|refil|acessorio)\b/.test(label) ||
+      /\b[2-9]\d*\s*(?:x|frascos?|unidades?)\b|\b\d+\s*x\s*\d/.test(label)) return false;
+  const startsWithBrand = brand.every((word,i)=>names[i] === word);
+  const endsWithBrand = brand.every((word,i)=>names[names.length-brand.length+i] === word);
+  if (!startsWithBrand && !endsWithBrand) return false;
+  const line = startsWithBrand ? names.slice(brand.length) : names.slice(0,-brand.length);
+  if (line.length < 2 || line.some(word=>!/^\p{L}+$/u.test(word))) return false;
+  const variants = line.length === 2 ? [line,[line[1],line[0]]] : [line];
+  return variants.some(words=>contains(title,[...brand,...words]) || contains(title,[...words,...brand]));
+}
+
+// A lone uncertain drug name or a name followed by a presentation still
+// requires confirmation. Longer literal merchandise names can prove identity
+// with the retailer's own brand and title before interpreting a short prefix.
+export function canVerifyRetailBrandLine(intent) {
+  return intent.kind === 'text' && !presentation.test(intent.suffix) &&
+    tokens(intent.suffix).filter(word=>/^[a-z]+$/.test(word)).length >= 2;
+}
+
 export function verifiedRow(row, intent, { ingredients = [], evidence } = {}) {
+  if (intent.requireRetailBrandLine) {
+    if (!matchesRetailBrandLine(row,intent.name+' '+intent.suffix)) return;
+    return {...row,activeIngredients:ingredients};
+  }
   const title = tokens(row.name), requested = tokens(intent.name), rest = tokens(catalogQuery(intent.suffix ?? ''));
   // An ingredient appearing after "sem" or "para" describes the product,
   // but does not establish its composition. Accept a leading identity only.
@@ -137,7 +173,10 @@ export function medicationCatalog(source, { searchVerified, intentFor = medicati
       if (!Number.isSafeInteger(page)||page<1||!Number.isSafeInteger(limit)||limit<1||limit>1000) throw new TypeError('Invalid page or limit');
       if (/^\d+$/.test(query.trim())) return source.search(query,page,limit);
       const intent = await intentFor(query);
-      if (intent.suggestions.length) return [];
+      if (intent.suggestions.length) {
+        if (!canVerifyRetailBrandLine(intent)) return [];
+        return searchVerified({...intent,requireRetailBrandLine:true},page,limit);
+      }
       return searchVerified(intent,page,limit);
     },
     async suggest(query,limit=7) {

@@ -74,3 +74,19 @@ test('both catalog identities survive an equal phonetic distance', async () => {
   assert.deepEqual(await nameChoices('rhitotriuu', {intentFor, resolve: async t => resolveName(t, names)}),
     ['ribotril', 'rivotril']);
 });
+
+test('a literal retail brand and product line can resolve a non-medication prefix',async()=>{
+  const rows=[
+    {brand:'Ever Care',name:'Descongestionante Nasal Spray Ever Care 50ml'},
+    {brand:'Ever Care',name:'Repelente Ever Care Spray 100ml'},
+    {brand:'Outra',name:'Kit para Spray Nasal Ever Care 50ml'},
+    {brand:'Ever Care',name:'Acessório para Spray Nasal Ever Care 50ml'},
+  ];
+  const intentFor=async query=>({kind:'text',name:'ever',suffix:query.slice(5),suggestions:['everolimo']});
+  const adapter=medicationCatalog({}, {intentFor,searchVerified:async intent=>rows.filter(r=>verifiedRow(r,intent))});
+  assert.deepEqual(await adapter.search('Ever Care spray nasal'),[rows[0]]);
+  assert.deepEqual(await adapter.search('Ever Care spray nasal 50 mL'),[rows[0]]);
+  for(const query of ['Ever Care spray nasal 100 mL','Ever Care spray nasal 2 mg','Ever 10mg','Ever']) {
+    assert.deepEqual(await adapter.search(query),[]);
+  }
+});
