@@ -101,8 +101,7 @@ async function prepareItem(item, label, catalog, expandSku) {
 
 function populate(table, products, stocks, fixed, nearestId, choices) {
   let number = 0;
-  for (const p of products) {
-    const product = productInfo(p);
+  for (const product of products) {
     const data = stocks.get(product.sku);
     const window = fixed ? data.stores.filter(s => s.id === nearestId) : data.stores;
     const stocked = window.filter(s => s.quantity != null && s.quantity >= table.quantity);
@@ -164,13 +163,21 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
   });
   const stocks = new Map([...windows].map(([sku, window]) => [sku, inventory(sku, window, expandedSearch?.partial)]));
   const nearestStore = [...stocks.values()].find(data => data.stores.length)?.stores[0];
-  const tables = prepared.map(p => p.table);
-  const lines = prepared.map(({ table, products }) => {
+  return planFromInventory(prepared.map(({ table, products }) => ({table, products:products.map(productInfo)})),
+    stocks, {store, nearestStore, coverage, expandedSearch, coordinatesFor:branchCoordinates});
+}
+
+// Inputs describe one retailer. A store record has its own reported quantity for
+// each SKU. Prepared products use the public productInfo shape.
+export async function planFromInventory(prepared, stocks, {store, nearestStore, coverage, expandedSearch, coordinatesFor}) {
+  const tables = prepared.map(({table}) => ({...table, rows:[], unavailable:[], unknown:[], failed:[]}));
+  const lines = prepared.map(({ products }, index) => {
+    const table = tables[index];
     const choices = [];
     populate(table, products, stocks, store === 'nearest', nearestStore?.id, choices);
     // Several incomplete direct hits can be shown, but the user must select
     // a SKU before one of them is used as a substitute in a shopping plan.
-    if (products.length > 1 && table.status === 'incomplete_presentation' && items.length > 1) {
+    if (products.length > 1 && table.status === 'incomplete_presentation' && prepared.length > 1) {
       table.needsSelection = true;
       choices.length = 0;
     }
@@ -179,10 +186,10 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
   const eligible = lines.filter(line => line.choices.length);
   let optimized = { plans: [], searchComplete: true };
   let directoryFailed = false;
-  if (items.length > 1 && eligible.length) {
+  if (prepared.length > 1 && eligible.length) {
     let coordinates = new Map();
     if (eligible.length > 1 && store !== 'nearest' && new Set(eligible.flatMap(l => l.choices.map(c => c.store.id))).size > 1) {
-      try { coordinates = await branchCoordinates(); } catch { directoryFailed = true; }
+      try { coordinates = await coordinatesFor(); } catch { directoryFailed = true; }
     }
     optimized = optimizePlans(lines, coordinates);
   }
@@ -195,13 +202,13 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
       extraStops: cheapest.stopCount - fewest.stopCount, extraKm: cheapest.roundTripKm == null || fewest.roundTripKm == null ?
         null : cheapest.roundTripKm - fewest.roundTripKm };
   }
-  const covered = items.length === 1 ? eligible.length : (fewest ? items.length - fewest.unfilled.length : 0);
-  return { status: covered === items.length ? 'complete' : covered ? 'partial' : 'unfilled',
+  const covered = prepared.length === 1 ? eligible.length : (fewest ? prepared.length - fewest.unfilled.length : 0);
+  return { status: covered === prepared.length ? 'complete' : covered ? 'partial' : 'unfilled',
     coverage, ...(expandedSearch && { expandedSearch }),
     scope: store ?? 'nearest_stocked_per_option', checkedAt: new Date().toISOString(), tables,
     ...(store === 'nearest' && nearestStore ? { fixedBranchId: nearestStore.id } : {}),
     ...optimized, tradeoff, directoryFailed,
-    ...(items.length > 1 ? { planGuidance: 'Use the exact plan label. Describe travel and stops only for the pickups in a returned plan. Each table row hides other stocked branches. For unselected alternatives, offer the option ID and wait for a preference before stating their stop count, itinerary or distance.' } : {}),
+    ...(prepared.length > 1 ? { planGuidance: 'Use the exact plan label. Describe travel and stops only for the pickups in a returned plan. Each table row hides other stocked branches. For unselected alternatives, offer the option ID and wait for a preference before stating their stop count, itinerary or distance.' } : {}),
     stockIncomplete: Boolean(expandedSearch?.partial) || tables.some(t => t.unknown.length || t.failed.length || t.status === 'catalog_lookup_failed'),
     priceIncomplete: eligible.some(line => line.choices.some(c => !Number.isFinite(c.cost))) };
 }
