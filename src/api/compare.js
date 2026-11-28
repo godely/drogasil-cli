@@ -1,3 +1,5 @@
+import { normalize, catalogQuery, dropSearchTerms, documentedDrops, presentationTokens, matchesRequest } from './presentation-label.js';
+import { countedPack, directCountedListing } from './counted-pack.js';
 import { getProductsBySku, searchProducts } from './algolia.js';
 import { normalizeCep } from './graphql.js';
 import { resolveMedication, ingredientPresentations } from './medications.js';
@@ -46,36 +48,6 @@ async function compareNearby(products, origin, store, expandSearch, info) {
   return available;
 }
 
-function normalize(value) {
-  return String(value ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
-    .replace(/(\d),(\d)/g, '$1.$2').replace(/(\d)\s+(?=mg|mcg|ml|g\b)/g, '$1')
-    .replace(/(\d)\.0+(?=[a-z\s]|$)/g, '$1').trim().replace(/\s+/g, ' ');
-}
-
-// Packaging prose can sit between the dosage and the count in a user's query.
-function catalogQuery(value) {
-  return value.replace(/\bem\s+(?=gotas?\b)/giu, '')
-    .replace(/\bfrasco\s+(?:de|com)\s+(?=\d+(?:[.,]\d+)?\s*m[lL]\b)/gu, (phrase, offset, text) =>
-      /\d\s*$/.test(text.slice(0, offset)) ? phrase : '')
-    .replace(/\s*,?\s*\b(?:(?:caixa|embalagem)\s+(?:de|com)|com)\s+(?=\d+\s+(?:comprimidos?|c[áa]psulas?)\b)/giu, ' ').trim();
-}
-
-function presentationTokens(value) {
-  return normalize(value).replace(/\s*\/\s*/g, '/')
-    .replace(/\b(\d+)\s+(comprimidos?|capsulas?|frascos?)\b/g, '$1$2')
-    .replace(/(comprimido|capsula|frasco)s\b/g, '$1')
-    .match(/[\p{L}\d.]+(?:\/[\p{L}\d.]+)?/gu) ?? [];
-}
-
-function matchesRequest(product, query) {
-  const requested = presentationTokens(query);
-  const evidence = presentationTokens([product.name, product.filters?.['Forma farmacêutica'],
-    product.filters?.['Via de administração'], product.details?.quantidade, ...(product.details?.dosageList ?? [])].join(' '));
-  const packVolumes = presentationTokens(product.details?.quantidade).filter(t => /^\d+(?:\.\d+)?ml$/.test(t));
-  return requested.length > 0 && requested.every(term =>
-    evidence.includes(term) && (!/^\d+(?:\.\d+)?ml$/.test(term) || !packVolumes.length || packVolumes.includes(term)));
-}
-
 function describePresentation(product) {
   const ingredients = product.details?.activeIngredients;
   const form = normalize(product.filters?.['Forma farmacêutica']);
@@ -100,7 +72,8 @@ function describePresentation(product) {
   const label = normalize([product.name, product.brand, form, pack].join(' '));
   const markers = label.match(/\b(?:xr|xl|sr|cr|er|dr|la|lp|mr|retard|chrono|depot|orodispersivel|sublingual|mastigavel|efervescente|gastrorresistente|liberacao (?:prolongada|modificada|controlada|retardada|lenta|bifasica))\b/g) ?? [];
   // Titles disambiguate liquid concentrations and bottle counts missing from structured doses.
-  const liquidDetails = presentationTokens(product.name).filter(t => t.includes('/') || /^\d+frasco$/.test(t) || t === 'gotas');
+  const liquidDetails = presentationTokens(product.name).filter(t => t.includes('/') || /^\d+frasco$/.test(t));
+  if (documentedDrops(product)) liquidDetails.push('gotas');
   const signature = JSON.stringify([liquidDetails.sort(), doses.sort(), form, pack, normalize(product.filters?.['Via de administração']), [...new Set(markers)].sort()]);
   return { key: missing.size ? null : signature, signature, missingFields: [...missing] };
 }
@@ -154,7 +127,7 @@ export function literalBrandPack(row, query, brand) {
 
 async function referenceOptions(query, release) {
   if (/^\d+$/.test(query)) return (await getProductsBySku([query])).filter(p => p && matchesRelease(p, release));
-  const candidates = (await searchAll(query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
+  const candidates = (await searchAll(dropSearchTerms(query) || query)).filter(product => matchesRequest(product, query) && matchesRelease(product, release));
   const exact = candidates.filter(product => {
     const brandDose = [product.brand, ...(product.details?.dosageList ?? [])].join(' ');
     return [product.name, brandDose].some(value => normalize(value) === normalize(query));
@@ -162,7 +135,7 @@ async function referenceOptions(query, release) {
   return exact.length ? exact : candidates;
 }
 
-export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false, includeGenerics, expandSearch = false } = {}) {
+export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false, directShopping = false, includeGenerics, expandSearch = false } = {}) {
   if (!['string', 'number'].includes(typeof query) || !String(query).trim()) throw new TypeError('expected a medication name or SKU');
   origin = normalizeOrigin(origin);
   if (store && (!origin || (store !== 'nearest' && !/^\d+$/.test(store)))) {
@@ -188,7 +161,7 @@ export async function compareProducts(query, { origin = null, store, resolveName
     refs = [];
   } else if (resolved?.filters) {
     const suffix = catalogQuery(resolved.suffix);
-    refs = await ingredientPresentations(lookup, { ...resolved, suffix }, includeUnpriced);
+    refs = await ingredientPresentations(lookup, { ...resolved, suffix:dropSearchTerms(suffix) }, includeUnpriced);
     refs = refs.filter(product => (!suffix || matchesRequest(product, suffix)) && matchesRelease(product, release));
     if (!refs.length && release === 'extended' && resolved.kind === 'brand') {
       const family = normalize(resolved.name);
@@ -203,6 +176,14 @@ export async function compareProducts(query, { origin = null, store, resolveName
   if (resolved?.kind === 'brand') {
     info.requestedBrandName = resolved.name;
     info.requestedBrandSkus = refs.map(p => String(p.sku));
+  }
+  if (!info.requestedBrandSkus && resolved?.kind === 'text') {
+    const brand = refs[0].brand;
+    if (brand && (normalize(query) + ' ').startsWith(normalize(brand) + ' ') &&
+        refs.every(p => normalize(p.brand) === normalize(brand))) {
+      info.requestedBrandName = brand;
+      info.requestedBrandSkus = refs.map(p => String(p.sku));
+    }
   }
   const descriptions = refs.map(describePresentation);
   const { key, signature, missingFields } = descriptions[0];
@@ -221,6 +202,13 @@ export async function compareProducts(query, { origin = null, store, resolveName
   }
   if (!key || descriptions.some(item => item.key !== key)) {
     if (resolved?.kind === 'ingredient' && !origin) {
+      const pack = directShopping && countedPack(resolved.suffix);
+      if (pack && refs.every(product => directCountedListing(product, resolved.name, pack))) {
+        const products = refs.map(p => Number.isFinite(p.price) && p.price > 0 ? p : { ...p, price: null })
+          .sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
+        return { ...info, status: 'incomplete_presentation', matchBasis: 'direct_requested_pack',
+          missingFields: [...new Set(descriptions.flatMap(d => d.missingFields))], products };
+      }
       const groups = new Map();
       for (const product of refs) {
         const id = presentation(product) ?? 'unverified:' + product.sku;

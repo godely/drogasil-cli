@@ -10,7 +10,9 @@
     ".": "./src/api/index.js",
     "./medication-catalog": "./src/api/medication-catalog.js",
     "./mcp-tools": "./src/api/mcp-tools.js",
-    "./retailer-workflows": "./src/retailers/index.js"
+    "./retailer-workflows": "./src/retailers/index.js",
+    "./cli-name-confirmation": "./src/commands/confirm-names.js",
+    "./catalog-search": "./src/api/catalog-search.js"
   },
   "files": [
     "bin",

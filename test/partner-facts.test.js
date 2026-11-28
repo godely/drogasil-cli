@@ -14,3 +14,20 @@ test('national evidence uses the partner SKU title and never imports another cat
   assert.deepEqual(result.results[0].brazil,{presentations:[]});
   assert.equal(result.results[1].status,'unknown_sku');
 });
+
+test('classify oral morphine from the official rule even when a merchant labels it C1',async () => {
+  const {medicationCard} = await import('drogasil-cli/retailer-workflows');
+  const card = name => medicationCard({name:'Marca em gotas', facts:{
+    'Princípio Ativo':name, 'Via de Administração':['Via Oral'], 'Tipo de Receita':['Com Retenção de Receita C1']}});
+  const result=card(['Com Sulfato de Morfina Pentaidratado']);
+  assert.deepEqual(result.prescriptionLabel,['Com retenção de receita']);
+  assert.equal(result.prescription.form,'Notificação de Receita A');
+  assert.equal(result.prescription.list,'A1');
+  assert.match(result.prescription.rule,/anvisalegis/);
+  for(const names of [[],['Normorfina'],['Ópio'],['Morfina','Outra substância']]) {
+    const other = card(names);
+    assert.equal(other.prescription.form,null);
+    assert.equal(other.prescription.retained,true);
+    assert.deepEqual(other.prescriptionLabel,['Com retenção de receita']);
+  }
+});

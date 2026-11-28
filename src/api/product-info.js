@@ -12,6 +12,27 @@ export function medicationType(product) {
   return 'Não informado';
 }
 
+// Manufacturer and trade brand are separate fields in the Drogasil catalog.
+// Accept a shortened generic manufacturer only with a full name in the title.
+export function genericManufacturers(products, requested) {
+  const normalize = value => fold(value).replace(/[^\p{L}0-9]+/gu, ' ').trim();
+  const wanted = normalize(requested);
+  const shortName = /^\p{L}{4,}$/u.test(wanted) &&
+    !['laboratorio','laboratorios','industria','grupo','generico','pharma','farma'].includes(wanted);
+  const matches = new Map();
+  for (const product of products) {
+    if (medicationType(product) !== 'Genérico') continue;
+    const manufacturer = product.details?.fabricante;
+    if (typeof manufacturer !== 'string' || !manufacturer.trim()) continue;
+    const name = normalize(manufacturer);
+    if (name !== wanted && !(shortName && name.startsWith(wanted+' ') &&
+        (' '+normalize(product.name)+' ').includes(' '+name+' '))) continue;
+    if (!matches.has(name)) matches.set(name, {name:manufacturer, products:[]});
+    matches.get(name).products.push(product);
+  }
+  return matches.has(wanted) ? [matches.get(wanted)] : [...matches.values()];
+}
+
 export function productInfo(product) {
   return { sku: String(product.sku), name: product.name, brand: product.brand,
     referencePriceBRL: product.price, pack: product.details?.quantidade, type: medicationType(product) };

@@ -1,6 +1,6 @@
 import { compareProducts, normalizeOrigin } from './compare.js';
 import { listStores } from './graphql.js';
-import { productInfo, brandOptions } from './product-info.js';
+import { productInfo, brandOptions, genericManufacturers } from './product-info.js';
 import { fold, resolveMedication } from './medications.js';
 import { searchStockWindows, stockQuantity } from './stock-search.js';
 import { optimizePlans } from './purchase-plans.js';
@@ -58,6 +58,7 @@ async function prepareItem(item, label, catalog, expandSku) {
     return { table, products: [] };
   }
   table.status = result.status;
+  if (result.matchBasis) table.matchBasis = result.matchBasis;
   if (result.interpretation) table.interpretation = result.interpretation;
   if (result.missingFields) table.missingFields = result.missingFields;
   let products = result.products;
@@ -84,8 +85,16 @@ async function prepareItem(item, label, catalog, expandSku) {
   const namedPresentation = p => brandSkus?.includes(String(p.sku)) && result.requestedBrandName &&
     fold(item.brand).startsWith(fold(result.requestedBrandName) + ' ') &&
     (fold(p.name) + ' ').startsWith(fold(item.brand) + ' ');
-  const matchesBrand = p => [p.brand, p.filters?.Marca, p.details?.marca].flat()
+  const matchesTradeName = p => [p.brand, p.filters?.Marca, p.details?.marca].flat()
     .some(name => name && fold(name) === fold(item.brand)) || namedPresentation(p);
+  const manufacturers = item.brand && !products.some(matchesTradeName) ? genericManufacturers(products,item.brand) : [];
+  if (manufacturers.length > 1) {
+    table.status = 'choose_manufacturer';
+    table.brands = manufacturers.map(group => group.name);
+    return {table, products:[]};
+  }
+  const manufacturerProducts = new Set(manufacturers[0]?.products);
+  const matchesBrand = p => matchesTradeName(p) || manufacturerProducts.has(p);
   if (item.brand && item.includeGenerics !== undefined && fold(item.brand) !== fold(result.requestedBrandName ?? '')) {
     brandSkus = products.filter(matchesBrand).map(p => String(p.sku));
   }
@@ -134,7 +143,7 @@ async function branchCoordinates() {
   return coordinates;
 }
 
-export async function planPurchase(items, { origin, store, expandSku = false, confirmBrands = false, expandSearch = false } = {}) {
+export async function planPurchase(items, { origin, store, expandSku = false, confirmBrands = false, expandSearch = false, includeBranchChoices = false } = {}) {
   origin = normalizeOrigin(origin);
   if (!origin) throw new TypeError('Supply a CEP or coordinates for a purchase plan');
   if (!Array.isArray(items) || !items.length) throw new TypeError('Supply at least one medication');
@@ -149,7 +158,7 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
     }
     if (pendingBrands.length) return { status: 'needs_generic_preference', pendingBrands, tables: [], plans: [] };
   }
-  const catalog = memoizeRequest(query => compareProducts(query, { resolveNames: true, includeUnpriced: true }));
+  const catalog = memoizeRequest(query => compareProducts(query, { resolveNames: true, includeUnpriced: true, directShopping: true }));
   const prepared = await Promise.all(normalized.map((item, i) => prepareItem(item, tableLabel(i), catalog, expandSku)));
   const minimums = new Map();
   for (const { table, products } of prepared) {
@@ -164,17 +173,23 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
   const stocks = new Map([...windows].map(([sku, window]) => [sku, inventory(sku, window, expandedSearch?.partial)]));
   const nearestStore = [...stocks.values()].find(data => data.stores.length)?.stores[0];
   return planFromInventory(prepared.map(({ table, products }) => ({table, products:products.map(productInfo)})),
-    stocks, {store, nearestStore, coverage, expandedSearch, coordinatesFor:branchCoordinates});
+    stocks, {store, nearestStore, coverage, expandedSearch, includeBranchChoices, coordinatesFor:branchCoordinates});
 }
 
 // Inputs describe one retailer. A store record has its own reported quantity for
 // each SKU. Prepared products use the public productInfo shape.
-export async function planFromInventory(prepared, stocks, {store, nearestStore, coverage, expandedSearch, coordinatesFor}) {
+export async function planFromInventory(prepared, stocks, {store, nearestStore, coverage, expandedSearch, coordinatesFor, includeBranchChoices = false}) {
   const tables = prepared.map(({table}) => ({...table, rows:[], unavailable:[], unknown:[], failed:[]}));
   const lines = prepared.map(({ products }, index) => {
     const table = tables[index];
     const choices = [];
     populate(table, products, stocks, store === 'nearest', nearestStore?.id, choices);
+    const priced = choices.filter(choice => Number.isFinite(choice.cost));
+    if (priced.length) {
+      const best = priced.reduce((a, b) => b.cost < a.cost || (b.cost === a.cost &&
+        (b.store.distanceKm ?? Infinity) < (a.store.distanceKm ?? Infinity)) ? b : a);
+      table.lowestPricedStockedOption = best.option;
+    }
     // Several incomplete direct hits can be shown, but the user must select
     // a SKU before one of them is used as a substitute in a shopping plan.
     if (products.length > 1 && table.status === 'incomplete_presentation' && prepared.length > 1) {
@@ -186,9 +201,10 @@ export async function planFromInventory(prepared, stocks, {store, nearestStore, 
   const eligible = lines.filter(line => line.choices.length);
   let optimized = { plans: [], searchComplete: true };
   let directoryFailed = false;
+  let coordinates = new Map();
   if (prepared.length > 1 && eligible.length) {
-    let coordinates = new Map();
-    if (eligible.length > 1 && store !== 'nearest' && new Set(eligible.flatMap(l => l.choices.map(c => c.store.id))).size > 1) {
+    const multipleBranches = new Set(eligible.flatMap(line => line.choices.map(choice => choice.store.id))).size > 1;
+    if (store !== 'nearest' && (includeBranchChoices || (eligible.length > 1 && multipleBranches))) {
       try { coordinates = await coordinatesFor(); } catch { directoryFailed = true; }
     }
     optimized = optimizePlans(lines, coordinates);
@@ -208,6 +224,8 @@ export async function planFromInventory(prepared, stocks, {store, nearestStore, 
     scope: store ?? 'nearest_stocked_per_option', checkedAt: new Date().toISOString(), tables,
     ...(store === 'nearest' && nearestStore ? { fixedBranchId: nearestStore.id } : {}),
     ...optimized, tradeoff, directoryFailed,
+    ...(includeBranchChoices && {branchChoices:lines.map(line => line.choices.map(({cost,...c}) =>
+      ({...c, store:{...c.store, coordinates:coordinates.get(c.store.id) ?? null}})))}),
     ...(prepared.length > 1 ? { planGuidance: 'Use the exact plan label. Describe travel and stops only for the pickups in a returned plan. Each table row hides other stocked branches. For unselected alternatives, offer the option ID and wait for a preference before stating their stop count, itinerary or distance.' } : {}),
     stockIncomplete: Boolean(expandedSearch?.partial) || tables.some(t => t.unknown.length || t.failed.length || t.status === 'catalog_lookup_failed'),
     priceIncomplete: eligible.some(line => line.choices.some(c => !Number.isFinite(c.cost))) };
