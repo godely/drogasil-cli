@@ -37,7 +37,8 @@ export function directCountedListing(product, ingredient, request) {
 }
 
 export function matchesCountedLabel(request, name, fields = {}) {
-  const title = normalized(name), pack = normalized(fields.pack), form = normalized(fields.form);
+  const title = normalized(name), pack = normalized(fields.pack);
+  const form = normalized(fields.form).replace(/^em\s+/, '');
   const route = normalized(fields.route);
   const evidence = [title, pack, form, normalized(fields.brand)].join(' ');
   if (route && !/^(?:(?:uso|via)\s+)?oral$/.test(route)) return false;

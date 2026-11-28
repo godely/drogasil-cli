@@ -33,6 +33,12 @@ test('direct named packs require independent strength and ingredient evidence', 
   const requested = countedPack('2,5 mg caixa com 20 comprimidos');
   const matches = p => directCountedListing(p, 'Exemplo', requested);
   assert.ok(matches(product));
+  for (const form of ['Em Comprimido', 'Em comprimidos revestidos']) {
+    assert.ok(matches({...product, filters:{'Forma farmacêutica':form}}), form);
+  }
+  for (const form of ['Em cápsula', 'Em comprimido sublingual']) {
+    assert.equal(matches({...product, filters:{'Forma farmacêutica':form}}), false, form);
+  }
   for (const route of ['Uso oral', 'Via oral', 'Oral']) {
     assert.ok(matches({...product, filters:{'Via de administração':route}}), route);
   }
