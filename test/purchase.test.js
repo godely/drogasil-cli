@@ -84,6 +84,30 @@ test('choices bind to SKUs before refresh, preserve restrictions and identify a 
   assert.equal(brand.tables[0].unavailable[0].sku, '11');
 });
 
+test('keeps the chosen generic manufacturer even when a product uses the ingredient as its brand', async t => {
+  const { products, calls } = fixture(t);
+  const [original, generic] = products;
+  generic.name += ' Prati-Donaduzzi';
+  generic.details.fabricante = 'Prati Donaduzzi';
+  const ask = brand => planPurchase([{query:'Alpha 1mg', brand, includeGenerics:false}], {origin});
+  for (const brand of ['Prati', 'Prati-Donaduzzi']) {
+    const {tables:[table]} = await ask(brand);
+    assert.deepEqual(table.rows.map(p=>p.sku), ['12']);
+  }
+  calls.length = 0;
+  original.details.fabricante = 'Prati Exemplo';
+  original.name += ' Genérico Prati Exemplo';
+  const ambiguous = await ask('Prati');
+  assert.equal(ambiguous.tables[0].status,'choose_manufacturer');
+  assert.deepEqual(ambiguous.tables[0].brands.sort(),['Prati Donaduzzi','Prati Exemplo']);
+  assert.match(renderPurchase(ambiguous),/Qual fabricante/);
+  assert.deepEqual(calls,[]);
+  generic.name = 'Example Genérico 1mg 10 comprimidos';
+  original.details.fabricante = 'Outro';
+  assert.equal((await ask('Prati')).tables[0].status, 'preference_unavailable');
+  assert.deepEqual(calls,[]);
+});
+
 test('repeated SKU shares the stock snapshot and cannot be over-allocated', async t => {
   const { calls } = fixture(t);
   const result = await planPurchase([{ query: '12', quantity: 2 }, '12'], { origin });
