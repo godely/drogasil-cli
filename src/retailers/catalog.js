@@ -21,10 +21,10 @@ export function catalogType(row) {
 }
 
 // A merchant's A/B/C list code is not a verified legal classification.
-function retailerPrescription(fields, ingredients, routes) {
+function retailerPrescription(fields, ingredients, routes, prescriptionEvidence) {
   const labels = values(fields['Prescrição Médica'], fields['Tipo de Receita']);
   const retentionLabel = values(fields['Retenção de Receita']);
-  const evidence = [...labels, ...retentionLabel].join(' ');
+  const evidence = [...labels, ...retentionLabel, prescriptionEvidence?.required === true ? 'Receita obrigatória' : ''].join(' ');
   const prescription = prescriptionInfo(evidence, '', ingredients.map(name => name.replace(/^com\s+/iu,'')),
     routes.length === 1 ? routes[0] : null);
   if (prescription.required === null && labels.some(label => /^sob prescri[çc][ãa]o(?: m[eé]dica)?$/iu.test(label)) && !prescription.conflict)
@@ -65,7 +65,8 @@ export function medicationCard(row) {
     strengths: [...uniqueDosages.values()], forms,
     routes,
     release: values(fields['Tipo de Liberação'], release ?? []), packs: values(fields.Quantidade, packs ?? []),
-    ...retailerPrescription(fields,activeIngredients,routes), observedAt: row.observedAt ?? null };
+    ...(row.prescriptionEvidence && {prescriptionEvidence:row.prescriptionEvidence}),
+    ...retailerPrescription(fields,activeIngredients,routes,row.prescriptionEvidence), observedAt: row.observedAt ?? null };
 }
 
 // Explicit local labels stand on their own. For abbreviated labels, join a documented

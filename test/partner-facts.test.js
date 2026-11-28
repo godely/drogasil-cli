@@ -68,3 +68,15 @@ test('national evidence and retailer facts survive independent source failures',
   assert.equal(infoExitCode([second]),2);
   assert.match(renderInfoResult(second,'Rede'),/Falha ao consultar as apresentações nacionais/);
 });
+
+test('explicit prescription evidence independently complements a pharmacy retention field', async () => {
+  const {medicationCard} = await import('../src/retailers/catalog.js');
+  const label = {source:'retailer_product_overview', required:true, url:'https://example.test/ficha'};
+  const card = (raw, evidence) => medicationCard({name:'Medicamento', facts:{'Prescrição Médica':[raw]},prescriptionEvidence:evidence});
+  assert.equal(card('Sem Retenção de Receita').prescription.required,null);
+  const complete = card('Sem Retenção de Receita',label);
+  assert.equal(complete.prescriptionEvidence,label);
+  assert.deepEqual(complete.prescription,{required:true,retained:false,form:'Receita simples'});
+  assert.equal(card('Venda livre',label).prescription.conflict,true);
+  assert.equal(card('',label).prescription.retained,null);
+});
