@@ -151,6 +151,9 @@ test('basket fulfillment requires one matching quote per requested line', async 
   }
   assert.equal((await check([])).status, 'unconfirmed');
   assert.equal((await check([quotes[0]], [items[0],items[0]])).status, 'partial');
+  const repeated = await check([{...quotes[0], requestedQuantity:4}], [items[0],items[0]]);
+  assert.equal(repeated.status, 'fulfillable');
+  assert.equal(repeated.estimatedProductTotalBRL, 12);
   const complete = await check([...quotes].reverse());
   assert.equal(complete.status, 'fulfillable');
   assert.equal(complete.estimatedProductTotalBRL, 12);

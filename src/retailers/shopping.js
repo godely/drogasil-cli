@@ -178,16 +178,28 @@ export async function retailerBasket({retailer, items, zipcode, coordinates}, so
     } else chosen.push({offer:rows[0],quantity});
   }
   if (pending.length) return {...base,status:'unresolved_items',pending};
-  const remaining = [...await source.basket(chosen, origin)];
-  const quotes = [];
+  const byOffer = new Map();
   for (const {offer, quantity} of chosen) {
-    const index = remaining.findIndex(row => row.sku === offer.sku && row.sellerId === offer.sellerId
-      && row.requestedQuantity === quantity);
-    if (index >= 0) quotes.push(...remaining.splice(index, 1));
+    const key = JSON.stringify([offer.sku, offer.sellerId]);
+    const total = (byOffer.get(key)?.quantity ?? 0) + quantity;
+    if (!Number.isSafeInteger(total) || total < 1) throw new TypeError('Invalid combined quantity');
+    byOffer.set(key, {offer, quantity:total});
   }
-  const fullyQuoted = chosen.length > 0 && quotes.length === chosen.length && remaining.length === 0;
+  const requested = [...byOffer.values()];
+  const remaining = [...await source.basket(requested, origin)];
+  const quotes = [];
+  let fullyQuoted = requested.length > 0;
+  for (const {offer, quantity} of requested) {
+    const index = remaining.findIndex(row => row.sku === offer.sku && row.sellerId === offer.sellerId
+      && Number.isSafeInteger(row.requestedQuantity) && row.requestedQuantity > 0 && row.requestedQuantity <= quantity);
+    if (index < 0) { fullyQuoted = false; continue; }
+    const [quote] = remaining.splice(index, 1);
+    quotes.push(quote);
+    if (quote.requestedQuantity !== quantity) fullyQuoted = false;
+  }
+  if (remaining.length) fullyQuoted = false;
   const available = quotes.filter(q => q.localStatus === 'available');
-  const complete = fullyQuoted && available.length === chosen.length;
+  const complete = fullyQuoted && available.length === requested.length;
   const pickupIds=q=>new Set(q.methods.filter(m=>m.channel==='pickup-in-point' && m.pickupPointId).map(m=>m.pickupPointId));
   const shared=new Map();
   if (complete) {
