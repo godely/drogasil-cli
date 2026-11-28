@@ -9,7 +9,8 @@
   "exports": {
     ".": "./src/api/index.js",
     "./medication-catalog": "./src/api/medication-catalog.js",
-    "./mcp-tools": "./src/api/mcp-tools.js"
+    "./mcp-tools": "./src/api/mcp-tools.js",
+    "./retailer-workflows": "./src/retailers/index.js"
   },
   "files": [
     "bin",
