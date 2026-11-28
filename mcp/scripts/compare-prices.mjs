@@ -1,5 +1,6 @@
 import { compareRetailPrices } from 'drogasil-cli';
 import { retailers } from '../retailers.js';
-const [query, zipcode] = process.argv.slice(2);
-if (!query || !zipcode) throw new Error('Usage: node mcp/scripts/compare-prices.mjs <query|SKU|GTIN> <CEP>');
-console.log(JSON.stringify(await compareRetailPrices(query,{ zipcode, retailers }), null, 2));
+const [query, first, second, ...extra] = process.argv.slice(2);
+if (!query || !first || extra.length) throw new Error('Use <query> <CEP> or <query> <latitude> <longitude>');
+const origin = second === undefined ? {zipcode:first} : {coordinates:{latitude:first,longitude:second}};
+console.log(JSON.stringify(await compareRetailPrices(query,{...origin, retailers}), null, 2));

@@ -241,6 +241,7 @@
       "store"
     ],
     "compare_pharmacy_prices": [
+      "coordinates",
       "includeGenerics",
       "query",
       "zipcode"
