@@ -81,14 +81,18 @@ export async function actorRun(id,read=get) {
 
 function index(rows) {
   const products=new Map(),duplicates=new Set();
+  const positions=new Map();
   let invalid=0;
-  for (const row of rows) {
+  for (const [offset,row] of rows.entries()) {
     if (row?.retailerId && row.retailerId !== 'drogasil') throw Error('Expected only Drogasil records');
     if (typeof row?.sku !== 'string' || !/^\d+$/.test(row.sku)) { invalid++; continue; }
     if (products.has(row.sku)) duplicates.add(row.sku);
-    else products.set(row.sku,row);
+    else {
+      products.set(row.sku,row);
+      positions.set(row.sku,offset+1);
+    }
   }
-  return {products,duplicates,invalid};
+  return {products,duplicates,invalid,positions};
 }
 
 function timing(run) {
@@ -122,6 +126,14 @@ export function compare(localDataset,actorDataset) {
     actor.status==='SUCCEEDED' && sameInput===true && overlap===true;
   const shared=[...a.products.keys()].filter(id=>b.products.has(id));
   const comparable=shared.filter(id=>!a.duplicates.has(id) && !b.duplicates.has(id));
+  const comparableIds=new Set(comparable);
+  const actorOrder=[...b.products.keys()].filter(id=>comparableIds.has(id));
+  const order={
+    comparableProducts:comparable.length,
+    sameRelativeOrder:comparable.length<2 ? null : isDeepStrictEqual(comparable,actorOrder),
+    positionChanges:comparable.filter(id=>a.positions.get(id)!==b.positions.get(id))
+      .map(sku=>({sku,local:a.positions.get(sku),actor:b.positions.get(sku)})),
+  };
   const observations=comparable.map(sku=>{
     const left=a.products.get(sku),right=b.products.get(sku);
     const elapsed=Date.parse(left.scrapedAt)-Date.parse(right.scrapedAt);
@@ -179,7 +191,7 @@ export function compare(localDataset,actorDataset) {
     onlyLocal:[...a.products.keys()].filter(id=>!b.products.has(id)),onlyActor:[...b.products.keys()].filter(id=>!a.products.has(id)),
     attributionDifferences:comparable.filter(id=>a.products.get(id).searchQuery!==b.products.get(id).searchQuery)
       .map(sku=>({sku,local:a.products.get(sku).searchQuery ?? null,actor:b.products.get(sku).searchQuery ?? null})),
-    observations,
+    order,observations,
     changedFields:observations.map(({sku,differences})=>({sku,fields:Object.keys(differences)})).filter(row=>row.fields.length),fields};
 }
 

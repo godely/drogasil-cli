@@ -38,6 +38,25 @@ test('old samples, different inputs, incomplete runs and missing timing cannot e
   assert.throws(()=>compare(local,{...actor,input:{pageSize:4}}),/Unexpected/);
 });
 
+test('reports export positions and relative order separately from successful paired execution',()=>{
+  const rows=ids=>ids.map(sku=>({sku}));
+  const report=(left,right)=>compare({...local,records:rows(left)},{...actor,records:rows(right)});
+  const reversed=report(['10','20'],['20','10']);
+  assert.equal(reversed.paired,true);
+  assert.deepEqual(reversed.order,{comparableProducts:2,sameRelativeOrder:false,positionChanges:[
+    {sku:'10',local:1,actor:2},{sku:'20',local:2,actor:1},
+  ]});
+  const shifted=report(['10','20'],['99','10','20']);
+  assert.deepEqual(shifted.order,{comparableProducts:2,sameRelativeOrder:true,positionChanges:[
+    {sku:'10',local:1,actor:2},{sku:'20',local:2,actor:3},
+  ]});
+  assert.deepEqual(report(['10','10','?','20'],['10','20']).order,{
+    comparableProducts:1,sameRelativeOrder:null,positionChanges:[{sku:'20',local:4,actor:2}],
+  });
+  assert.deepEqual(report(['10'],['20']).order,{comparableProducts:0,sameRelativeOrder:null,positionChanges:[]});
+  assert.deepEqual(report(['10','20'],['10','20']).order,{comparableProducts:2,sameRelativeOrder:true,positionChanges:[]});
+});
+
 test('downloaded exports share the same comparator and keep observation times, zero, false and omissions',()=>{
   const actorRow={sku:'01',currentPrice:0,listPrice:null,inStock:false,scrapedAt:'2026-10-27T12:00:00Z'};
   const localRow={...actorRow,currentPrice:null,stockSignal:0,scrapedAt:'2026-10-27T12:02:00Z'};
