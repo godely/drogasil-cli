@@ -22,9 +22,31 @@ Assessment of the November 2026 snapshot. The Actor collects anonymous storefron
 | Scheduling and integrations | A systemd timer or cron can launch the collector. The HTTPS webhook can deliver results to a workflow receiver. Sheets can import the spreadsheet exports. | A one-shot systemd timer ran on the deployment host. A local HTTPS receiver received the dataset and its idempotency header. Hosted Make, Zapier and Sheets account integrations were outside that test. |
 | Additional pharmacy workflows | Compare equivalent presentations, check branch quantities, plan purchases and compare identical packs across chains at a supplied location | The shared-pack pilot confirmed 25 matching presentations at two locations. The four-chain client also checked a single shared pack in all state capitals and five interior cities. |
 
-The original benchmark used the Actor's public schema. A paid run comparing row-by-row results and throughput against the Actor remains unmeasured. The hosted Apify platform also provides its own scheduler and dataset UI. Our deployment exposes the CLI, API and MCP for these workflows.
+The hosted Apify platform provides its own scheduler and dataset UI. Our deployment exposes the CLI, API and MCP for these workflows.
 
-[Snapshot usage](catalog-snapshots.md) · [Storefront field audit](storefront-audit.md) · [Exact-pack pilot](local-price-pilot.md) · [Four-chain API](https://github.com/godely/farmacias-br)
+[Snapshot usage](catalog-snapshots.md) · [Storefront field audit](storefront-audit.md) · [Exact-pack pilot](local-price-pilot.md) · [Farmácias BR](https://github.com/godely/farmacias-br)
+
+## Comparison with the published Actor record
+
+Both sources found the same 15 mL bottle of Pratium paracetamol drops under the query `paracetamol`. The Actor published one example observed on October 27, 2026. On November 28 the CLI collected 60 distinct products and exported the complete run. Joining by the product identifier matched that example. The sources were 32 days and 11 hours apart. [Actor example and field definitions](https://apify.com/automation-lab/drogasil-pharmacy-products-prices#example-output) · [Drogasil product page](https://www.drogasil.com.br/pratium-140mg-gotas-frasco-15ml.html)
+
+| Observation | Actor, October 27 | Drogasil CLI, November 28 |
+|---|---:|---:|
+| Advertised selling price | R$ 39.98 | R$ 40.00 |
+| Advertised list price | R$ 39.98 | R$ 41.24 |
+| Retailer-reported discount | 0% | Unknown |
+| Online stock signal | 1 | 1 |
+
+Ten of the thirteen comparable fields had identical values, including the product name, brand, category path and product URL. The table shows the three differing fields. The November product page displayed R$ 40,00 and omitted a percentage for this offer. The 59 other CLI rows have no published Actor observations to compare. Catalog coverage, simultaneous price agreement and relative speed still need two full runs collected at the same time.
+
+For a side-by-side benchmark, launch both collectors with the same search terms, order and product limit. Verify that both completed, download the Actor dataset as JSON and export the entire CLI run. A single page from `snapshot read` can omit records. Compare the two files locally:
+
+```sh
+drogasil snapshot export "$RUN_ID" --format json > drogasil.json
+node scripts/compare-apify-export.mjs actor.json drogasil.json > comparison.json
+```
+
+The report counts unique matches and lists products present on only one side. It identifies duplicate or missing identifiers, records both observation times and distinguishes reported zero, missing fields and explicit nulls. A duplicated identifier is excluded from value comparisons. To measure speed, record each run's start and completion times separately.
 
 ## Reproduction
 
