@@ -204,3 +204,28 @@ test('permanent errors and long rate limits stop immediately; exhausted transien
     assert.equal(result.stats.productRequests,2+retries);
   }
 });
+
+test('spreadsheets keep optional columns first seen after the first row, including columns beyond Z', async () => {
+  const {execFileSync} = await import('node:child_process');
+  const {fileURLToPath} = await import('node:url');
+  const script = fileURLToPath(new URL('../src/snapshots/export.py',import.meta.url));
+  const base = Object.fromEntries(Array.from({length:26},(_,i) => ['field'+i, 'text']));
+  const rows = [{sku:'00012',...base}, {sku:'00013',extraStock:0,promoted:false,offers:['A','B']}];
+  const read = `
+import csv,io,json,sys,zipfile,xml.etree.ElementTree as E
+if sys.argv[1] == "csv":
+    r = list(csv.DictReader(io.StringIO(sys.stdin.read())))[1]
+    print(json.dumps([r["sku"],r["extraStock"],r["promoted"],r["offers"]]))
+else:
+    with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
+        rows = E.fromstring(z.read("xl/worksheets/sheet1.xml")).findall(".//{*}row")
+    last = {c.get("r"): (c.get("t"), "".join(c.itertext())) for c in rows[2]}
+    print(json.dumps([last[k] for k in ["A3","AB3","AC3","AD3"]]))
+`;
+  for (const format of ['csv','xlsx']) {
+    const bytes = execFileSync('python3',[script,format],{input:JSON.stringify(rows)});
+    const result = JSON.parse(execFileSync('python3',['-c',read,format],{input:bytes}));
+    assert.deepEqual(result,format === 'csv' ? ['00013','0','False','["A", "B"]'] :
+      [['inlineStr','00013'],[null,'0'],['b','0'],['inlineStr','["A", "B"]']]);
+  }
+});

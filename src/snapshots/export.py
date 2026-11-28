@@ -1,13 +1,19 @@
 """Write rows from one bounded catalog run to stdout."""
 import csv
-import io
 import json
 import sys
-from xml.sax.saxutils import escape
 from zipfile import ZipFile, ZIP_DEFLATED
 
 rows = json.load(sys.stdin)
-columns = list(rows[0]) if rows else ["sku","name","brand","categories","categoryPath","productUrl","currentPrice","listPrice","discountPercentage","currency","stockSignal","inStock","seller","searchQuery","sourceUrl","scrapedAt"]
+columns = list(dict.fromkeys(key for row in rows for key in row)) if rows else ["sku","name","brand","categories","categoryPath","productUrl","currentPrice","listPrice","discountPercentage","currency","stockSignal","inStock","seller","searchQuery","sourceUrl","scrapedAt"]
+
+def column_name(index):
+    label = ""
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        label = chr(65 + remainder) + label
+    return label
+
 
 def flat(v):
     return json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
@@ -28,7 +34,7 @@ elif sys.argv[1] == "xlsx":
         row = SubElement(data,"row",r=str(rid))
         for col, value in enumerate(values):
             if value is None: continue
-            cell = SubElement(row,"c",r=chr(65+col)+str(rid))
+            cell = SubElement(row,"c",r=column_name(col + 1)+str(rid))
             if isinstance(value, bool):
                 cell.set("t","b"); SubElement(cell,"v").text = str(int(value))
             elif isinstance(value,(float,int)):
