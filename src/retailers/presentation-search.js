@@ -38,7 +38,10 @@ export function withBrandPacks(source, resolvePacks = brandPacks) {
     const bySku = new Map();
     function append(row, evidence) {
       const sellers = bySku.get(row.sku) ?? new Map();
-      if (!sellers.has(row.sellerId)) sellers.set(row.sellerId, { ...row, presentationEvidence: evidence });
+      if (!sellers.has(row.sellerId)) {
+        const tradeName = literalBrandPack(row, match.brand, match.brand) ? match.brand : undefined;
+        sellers.set(row.sellerId, { ...row, presentationEvidence:evidence, requestedTradeName:tradeName });
+      }
       bySku.set(row.sku, sellers);
     }
     for (const ref of match.hits) {

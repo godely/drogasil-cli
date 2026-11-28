@@ -98,7 +98,13 @@ export async function retailerComparison({retailer, query, includeGenerics}, sou
   if (distinct.length > 1) return {retailerId:retailer,status:'choose_reference',candidates:discovery.map(r=>listed(r,retailer)),
     guidance:'Use pharmacy_search for more presentations, then pass the chosen local SKU.'};
   const originals = exact || wantsDrops ? discovery : await source.product(distinct[0]);
-  const products = originals.map(row=>({...listed(row,retailer),role:'requested'}));
+  const products = originals.map(row=>{
+    // Hydrating a retailer SKU can replace the trade-brand field with the manufacturer.
+    // Carry the verified name across this second read only for the same local pack.
+    const found = discovery.find(p=>p.requestedTradeName && p.sku === row.sku &&
+      validGtin(p.gtin ?? '') && p.gtin === row.gtin);
+    return {...listed(row,retailer),role:'requested',...(found && {requestedTradeName:found.requestedTradeName})};
+  });
   const result = {retailerId:retailer,status:'matches',products};
   if (!originals.length) return {...result,status:'unknown_sku'};
   if (!includeGenerics) return result;

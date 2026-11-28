@@ -5,6 +5,7 @@ import { catalogQuery, matchesRequest } from '../src/api/presentation-label.js';
 import { samePack } from '../src/api/retail-prices.js';
 import { medicationCard } from '../src/retailers/catalog.js';
 import { brandPacks, withBrandPacks } from '../src/retailers/presentation-search.js';
+import { retailerComparison } from '../src/retailers/shopping.js';
 
 const gtin = '7894916513005';
 const bottle = { name: 'Patz Hemitartarato de Zolpidem 10mg/ml 20ml Solução Gotas', gtin, sku: 'local', sellerId: '1' };
@@ -27,6 +28,18 @@ test('sublingual matching uses each pack’s own evidence and preserves strength
   assert.deepEqual(medicationCard({...plural,facts:mixedRoutes}).routes,['Sublingual']);
   assert.ok(samePack({...structured,gtin}, {...plural,gtin}));
   assert.equal(samePack({...plural,gtin}, {gtin,name,itemName:name,facts:mixedRoutes}), false);
+});
+
+test('a product detail listing the manufacturer preserves the verified trade name only for the same pack', async () => {
+  const row={sku:'10',gtin,sellerId:'1',brand:'Fabricante',name:'Marca 0,25 mg 30 comprimidos sublinguais'};
+  const source={search:async()=>[row],product:async()=>[row]};
+  const adapter=withBrandPacks(source,async()=>({brand:'Marca',hits:[]}));
+  const args={retailer:'partner',query:'Marca sublingual',includeGenerics:false};
+  const result=await retailerComparison(args,adapter,{});
+  assert.equal(result.products[0].requestedTradeName,'Marca');
+  assert.equal(result.products[0].brand,'Fabricante');
+  const changed=await retailerComparison(args,{...adapter,product:async()=>[{...row,gtin:'7899547543766'}]},{});
+  assert.equal(changed.products[0].requestedTradeName,undefined);
 });
 
 test('a local pack can omit the brand suffix and still corroborate drops and the bottle volume', async () => {
