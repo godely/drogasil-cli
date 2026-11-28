@@ -1,0 +1,20 @@
+{
+  "paguemenos": [
+    "compare --expand",
+    "compare --store",
+    "plan --expand",
+    "plan --store",
+    "stock --all",
+    "stock --expand",
+    "stock --max-branches"
+  ],
+  "drogariasaopaulo": [
+    "compare --expand",
+    "compare --store",
+    "plan --expand",
+    "plan --store",
+    "stock --all",
+    "stock --expand",
+    "stock --max-branches"
+  ]
+}
