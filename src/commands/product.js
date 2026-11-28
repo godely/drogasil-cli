@@ -35,6 +35,6 @@ export async function run(positionals, values) {
       ? [p.sku, p.name, medicationType(p), p.brand ?? '', p.eanCode ?? '', formatPrice(p.price), p.isActive === false ? 'inactive' : '']
       : [skus[i], 'not found', '', '', '', '', ''],
   );
-  process.stdout.write(table(['SKU', 'NAME', 'BRAND', 'EAN', 'PRICE', 'STATUS'], rows) + '\n');
+  process.stdout.write(table(['SKU', 'NAME', 'TYPE', 'BRAND', 'EAN', 'PRICE', 'STATUS'], rows) + '\n');
   return missing ? 3 : 0;
 }

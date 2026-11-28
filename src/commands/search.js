@@ -50,7 +50,7 @@ export async function run(positionals, values) {
   }
 
   const rows = result.hits.map((h) => [h.sku, h.name, medicationType(h), h.brand ?? '', formatPrice(h.price)]);
-  process.stdout.write(table(['SKU', 'NAME', 'BRAND', 'PRICE'], rows) + '\n');
+  process.stdout.write(table(['SKU', 'NAME', 'TYPE', 'BRAND', 'PRICE'], rows) + '\n');
   if (result.nbPages > 1) {
     process.stdout.write(`\npage ${result.page + 1} of ${result.nbPages} (${result.nbHits} hits)\n`);
   }
