@@ -44,3 +44,18 @@ test('a promotional extra in the storefront title cannot inherit exact-pack cove
   assert.equal(samePack(reference,bundle),false);
   assert.equal(samePack(bundle,reference),false);
 });
+
+test('Drogasil can establish identity without collecting a Drogasil offer', async t => {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async url => {
+    calls.push(String(url));
+    assert.match(String(url), /queries/);
+    return Response.json({results:[{hits:[{sku:'88',eanCode:'7899547543766',name:'Exemplo 750 mg 20 comprimidos'}]}]});
+  });
+  const result = await compareRetailPrices('7899547543766', { zipcode:'01001000', includeDrogasil:false, retailers:[
+    {name:'Partner', byGtin:async () => []},
+  ]});
+  assert.equal(calls.length,1);
+  assert.deepEqual(result.checkedRetailers,[{retailer:'Partner',status:'no_exact_match'}]);
+  assert.deepEqual(result.onlineOffers,[]);
+});
