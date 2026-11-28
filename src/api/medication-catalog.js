@@ -40,9 +40,9 @@ function similarSoundingNames(typed, names) {
 // Compare complete words so a rejection of loratadina still permits desloratadina.
 export function alternativeNames(terms, query, declined, limit = 7) {
   const rejected = declined.map(term => {
-    const words = tokens(term);
+    const words = tokens(catalogQuery(term));
     const presentation = words.findIndex(word => /^\d/.test(word) ||
-      /^(?:gotas?|comprimidos?|capsulas?|solucao|suspensao|xarope|frascos?|ampolas?|pomada|creme|sublingual|injetavel|xr|sr)$/.test(word));
+      /^(?:gotas?|comprimidos?|capsulas?|solucao|suspensao|xarope|frascos?|ampolas?|pomada|creme|sublingual|injetavel|liberacao|xr|cr|sr)$/.test(word));
     const name = presentation > 0 ? words.slice(0, presentation) : words;
     if (presentation > 0 && ['em','de','com'].includes(name.at(-1))) name.pop();
     return name;
@@ -132,7 +132,7 @@ export function matchesRetailBrandLine(row, query) {
 // requires confirmation. Longer literal merchandise names can prove identity
 // with the retailer's own brand and title before interpreting a short prefix.
 export function canVerifyRetailBrandLine(intent) {
-  return intent.kind === 'text' && !presentation.test(intent.suffix) &&
+  return intent.kind === 'text' && !startsWithPresentation(intent.suffix) &&
     tokens(intent.suffix).filter(word=>/^[a-z]+$/.test(word)).length >= 2;
 }
 
@@ -184,15 +184,7 @@ export function medicationCatalog(source, { searchVerified, intentFor = medicati
       return (await intentFor(query)).suggestions.slice(0,limit);
     },
     async alternatives(query,declined,limit) {
-      const others=(await adapter.suggest(query,50)).filter(s=>clean(s)!==clean(declined));
-      if (others.length >= limit || clean(declined).includes(' ')) return others.slice(0,limit);
-      const rows=await adapter.search(declined,1,20);
-      const refinements=new Set(others);
-      for (const row of rows) {
-        const doses=tokens(row.name).filter(unitDose);
-        if (doses.length===1) refinements.add(declined+' '+doses[0].replace(/^(\d+(?:\.\d+)?)/,'$1 '));
-      }
-      return [...refinements].slice(0,limit);
+      return alternativeNames(await adapter.suggest(query,50), query, [declined], limit);
     },
   };
   return adapter;
@@ -201,10 +193,13 @@ export function medicationCatalog(source, { searchVerified, intentFor = medicati
 // Preserve full catalog queries for merchandise. Only treat trailing words
 // after a possible misspelling as a presentation when they look like one.
 const presentation = /^(?:\d|(?:em|com|de|xr|cr|sr|sl|gotas?|frasco|solucao|comprimidos?|capsulas?|spray|gel|pomada|suspensao|sublingual|liberacao)\b)/;
+function startsWithPresentation(suffix = '') {
+  return presentation.test(normalizeSublingual(catalogQuery(suffix)));
+}
 const catalogTerms = new Set(['gel','spray','diet','dor','protetor','creme','kit','cha','oleo','solucao','pomada','gotas']);
 export async function nameChoices(query, {intentFor = medicationIntent, resolve = resolveMedication} = {}) {
   const intent = await intentFor(query);
-  if (catalogTerms.has(intent.name) || !intent.suggestions.length || (intent.suffix && !presentation.test(intent.suffix))) return [];
+  if (catalogTerms.has(intent.name) || !intent.suggestions.length || (intent.suffix && !startsWithPresentation(intent.suffix))) return [];
   const candidates = intent.suggestions.slice(0, 7);
   if (candidates.length === 1 || intent.suggestionBasis === 'phonetic') return candidates;
   const suffix = intent.suffix ? ' ' + intent.suffix : '';

@@ -17,10 +17,28 @@ test('accepts identity evidence, rejects lookalikes, conflicting composition, an
   for(const title of ['Hidromorfina 10 mg','X sem morfina 10 mg','Morfina 10 mg/ml','Morfina 110mg']) assert.equal(match(title),undefined);
   assert.equal(match('Morfina 10mg',['Tramadol']),undefined);
 });
-test('declining a term returns refinements from verified products without repeating the term', async () => {
-  const src=medicationCatalog({}, {intentFor:q=>medicationIntent(q,index),searchVerified:async()=>[{name:'Dimorf 10mg 50 comprimidos'}]});
+test('declining a name does not look up or offer another dose of that medication', async () => {
+  const src=medicationCatalog({}, {intentFor:q=>medicationIntent(q,index),searchVerified:assert.fail});
   assert.deepEqual(await src.search('morfi'),[]);
-  assert.deepEqual(await src.alternatives('morfi','morfina',7),['morfina 10 mg']);
+  assert.deepEqual(await src.alternatives('morfi','morfina',7),[]);
+});
+
+test('route and packaging prose retain the presentation until the name is confirmed', async () => {
+  const names = nameIndex([[], ['Rivotril']]);
+  const intentFor = query => medicationIntent(query, async () => names);
+  const choose = query => nameChoices(query, {intentFor, resolve: async term => resolveName(term, names)});
+  const catalog = medicationCatalog({}, {intentFor, searchVerified: assert.fail});
+  for (const suffix of ['via sublingual 0.25 mg', 'por via sub-lingual 2 mg', 'caixa com 30 comprimidos', 'embalagem de 60 capsulas']) {
+    const query = 'rivortil ' + suffix;
+    const corrected = 'rivotril ' + suffix;
+    assert.deepEqual(await choose(query), [corrected]);
+    assert.deepEqual(await choose(corrected), []);
+    assert.deepEqual(await catalog.search(query), []);
+    assert.deepEqual(await catalog.alternatives(query, corrected, 7), []);
+  }
+  for (const line of ['via lactea', 'caixa organizadora', 'embalagem para presente']) {
+    assert.deepEqual(await choose('rivortil ' + line), []);
+  }
 });
 
 test('an ambiguous prefix retains exact catalog brands and ingredients with the original presentation', async () => {
