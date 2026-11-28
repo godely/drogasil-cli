@@ -198,3 +198,11 @@ test('a chosen ingredient pack is one shopping line across manufacturers', async
   assert.equal(multi.tables[0].needsSelection, true);
   assert.deepEqual(multi.plans[0].unfilled, ['A']);
 });
+
+test('a regional planner can reuse all eligible branches, coordinates and stock checks',async t=>{
+  const {calls}=fixture(t);
+  const r=await planPurchase(['Alpha 1mg','Beta 1mg'],{origin,includeBranchChoices:true});
+  const b=r.branchChoices[1];
+  assert.deepEqual(b.map(({store})=>[store.id,store.quantity,store.coordinates.longitude]),[['2',3,0.02],['3',2,0.03]]);
+  assert.equal(new Set(calls).size,calls.length);
+});

@@ -136,7 +136,7 @@ async function branchCoordinates() {
   return coordinates;
 }
 
-export async function planPurchase(items, { origin, store, expandSku = false, confirmBrands = false, expandSearch = false } = {}) {
+export async function planPurchase(items, { origin, store, expandSku = false, confirmBrands = false, expandSearch = false, includeBranchChoices = false } = {}) {
   origin = normalizeOrigin(origin);
   if (!origin) throw new TypeError('Supply a CEP or coordinates for a purchase plan');
   if (!Array.isArray(items) || !items.length) throw new TypeError('Supply at least one medication');
@@ -186,9 +186,9 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
   const eligible = lines.filter(line => line.choices.length);
   let optimized = { plans: [], searchComplete: true };
   let directoryFailed = false;
+  let coordinates = new Map();
   if (items.length > 1 && eligible.length) {
-    let coordinates = new Map();
-    if (eligible.length > 1 && store !== 'nearest' && new Set(eligible.flatMap(l => l.choices.map(c => c.store.id))).size > 1) {
+    if ((eligible.length > 1 || includeBranchChoices) && store !== 'nearest' && (includeBranchChoices || new Set(eligible.flatMap(l => l.choices.map(c => c.store.id))).size > 1)) {
       try { coordinates = await branchCoordinates(); } catch { directoryFailed = true; }
     }
     optimized = optimizePlans(lines, coordinates);
@@ -208,6 +208,8 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
     scope: store ?? 'nearest_stocked_per_option', checkedAt: new Date().toISOString(), tables,
     ...(store === 'nearest' && nearestStore ? { fixedBranchId: nearestStore.id } : {}),
     ...optimized, tradeoff, directoryFailed,
+    ...(includeBranchChoices && {branchChoices:lines.map(line => line.choices.map(({cost,...c}) =>
+      ({...c, store:{...c.store, coordinates:coordinates.get(c.store.id) ?? null}})))}),
     ...(items.length > 1 ? { planGuidance: 'Use the exact plan label. Describe travel and stops only for the pickups in a returned plan. Each table row hides other stocked branches. For unselected alternatives, offer the option ID and wait for a preference before stating their stop count, itinerary or distance.' } : {}),
     stockIncomplete: Boolean(expandedSearch?.partial) || tables.some(t => t.unknown.length || t.failed.length || t.status === 'catalog_lookup_failed'),
     priceIncomplete: eligible.some(line => line.choices.some(c => !Number.isFinite(c.cost))) };
