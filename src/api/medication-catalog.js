@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { dcbNames as dcb } from './dcb.js';
 import { fold, resolveName, medicationIndex, distance, resolveMedication } from './medications.js';
 import { catalogQuery, documentedSublingual, normalizeSublingual } from './presentation-label.js';
 
-const dcb = new Set(readFileSync(new URL('../data/dcb-names.txt', import.meta.url), 'utf8').trimEnd().split('\n'));
 export const isDcbName = term => dcb.has(fold(term));
 const clean = value => fold(value ?? '').replace(/(\d),(?=\d)/g, '$1.').replace(/\s+/g, ' ');
 const tokens = value => normalizeSublingual(clean(value)).match(/\d+(?:\.\d+)?\s*(?:mcg|mg|ml|ui|g|%)(?:\s*\/\s*(?:ml|g|h|dose))?|[a-z]+|\d+(?:\.\d+)?/g)?.map(t=>t.replace(/\s/g,'')) ?? [];
@@ -81,6 +80,10 @@ export async function medicationIntent(input, getIndex = medicationIndex) {
       Number(isDcbName(b))-Number(isDcbName(a)) || a.length-b.length || a.localeCompare(b));
     for (const name of prefix) suggested.add(name);
     const result = resolveName(typed,names);
+    if (!prefix.length && result.officialSpellingChoice) {
+      return {kind:'text', name:typed, suffix, suggestionBasis:'official_spelling',
+        suggestions:result.nameCandidates.map(name=>[name,suffix].filter(Boolean).join(' '))};
+    }
     if (result.interpretation) suggested.add(result.interpretation.interpreted);
     for (const name of result.nameCandidates ?? result.ingredientCandidates ?? []) suggested.add(name);
     if (!suggested.size && typed.length >= 5) {
@@ -201,7 +204,7 @@ export async function nameChoices(query, {intentFor = medicationIntent, resolve 
   const intent = await intentFor(query);
   if (catalogTerms.has(intent.name) || !intent.suggestions.length || (intent.suffix && !startsWithPresentation(intent.suffix))) return [];
   const candidates = intent.suggestions.slice(0, 7);
-  if (candidates.length === 1 || intent.suggestionBasis === 'phonetic') return candidates;
+  if (candidates.length === 1 || ['phonetic','official_spelling'].includes(intent.suggestionBasis)) return candidates;
   const suffix = intent.suffix ? ' ' + intent.suffix : '';
   // A brand and an ingredient can share the exact letters the shopper typed.
   // Keep live prefix matches ahead of approximate spellings and DCB-only entries.

@@ -1,4 +1,5 @@
 import { medicationFacets, searchProducts } from './algolia.js';
+import { dcbNames } from './dcb.js';
 
 const aliases = new Map(Object.entries({
   morphine: 'morfina', morphina: 'morfina', acetaminophen: 'paracetamol', metamizole: 'dipirona',
@@ -16,11 +17,25 @@ function add(map, key, value) {
   if (!map.has(key)) map.set(key, new Set());
   map.get(key).add(value);
 }
+
+function transposedOfficialNames(word) {
+  const candidates = new Set();
+  for (let i = 1; i < word.length; i++) {
+    if (word[i - 1] === word[i]) continue;
+    const candidate = word.slice(0,i - 1) + word[i] + word[i - 1] + word.slice(i + 1);
+    if (dcbNames.has(candidate)) candidates.add(candidate);
+  }
+  return [...candidates];
+}
 export function nameIndex([ingredients, brands]) {
   const ingredient = new Map(), brand = new Map();
   for (const value of ingredients) {
     const full = fold(value);
     add(ingredient, full, value);
+    // Keep the retailer's complete salt in the search filter. Index the base
+    // as an additional spelling only if the official list contains that name.
+    const base = full.replace(/^(?:oxalato|bromidrato) de | calcic[oa]$/g, '');
+    if (base !== full && dcbNames.has(base)) add(ingredient, base, value);
     const words = full.split(/\s+/).filter(word => !['de', 'do', 'da'].includes(word) && !qualifiers.has(word)
       && !/^(mono|di|tri|tetra|penta|hexa)?-?hidratad[oa]$/.test(word));
     if (words.length === 1) add(ingredient, aliases.get(words[0]) ?? words[0], value);
@@ -63,7 +78,18 @@ export function resolveName(query, names) {
     if (prefix === 'tiptilina') return { status: 'ambiguous', ingredientCandidates: ['amitriptilina', 'nortriptilina'] };
     let key = aliases.get(prefix) ?? prefix;
     if (!names.ingredient.has(key) && !names.brand.has(key)) {
+      if (dcbNames.has(prefix)) return { kind: 'text', suffix: input };
       if (n !== 1 || !/^[a-z]{5,40}$/.test(key)) continue;
+      // A missing official name must still be available for clarification.
+      // Otherwise a distant in-catalog ingredient could win by default.
+      const swaps = transposedOfficialNames(key);
+      if (swaps.some(name => !names.ingredient.has(name))) {
+        const choices = new Set(swaps);
+        for (const name of [...names.ingredient.keys(), ...names.brand.keys()]) {
+          if (Math.abs(key.length - name.length) <= 1 && distance(key, name) === 1) choices.add(name);
+        }
+        return {status:'ambiguous', nameCandidates:[...choices].sort(), officialSpellingChoice:true};
+      }
       let best = Infinity, found = [];
       for (const word of new Set([...names.ingredient.keys(), ...names.brand.keys()])) {
         const limit = key.length >= 8 ? 2 : 1;
