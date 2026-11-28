@@ -178,9 +178,16 @@ export async function retailerBasket({retailer, items, zipcode, coordinates}, so
     } else chosen.push({offer:rows[0],quantity});
   }
   if (pending.length) return {...base,status:'unresolved_items',pending};
-  const quotes=await source.basket(chosen,origin);
-  const available=quotes.filter(q=>q.localStatus==='available');
-  const complete=available.length===quotes.length && quotes.length>0;
+  const remaining = [...await source.basket(chosen, origin)];
+  const quotes = [];
+  for (const {offer, quantity} of chosen) {
+    const index = remaining.findIndex(row => row.sku === offer.sku && row.sellerId === offer.sellerId
+      && row.requestedQuantity === quantity);
+    if (index >= 0) quotes.push(...remaining.splice(index, 1));
+  }
+  const fullyQuoted = chosen.length > 0 && quotes.length === chosen.length && remaining.length === 0;
+  const available = quotes.filter(q => q.localStatus === 'available');
+  const complete = fullyQuoted && available.length === chosen.length;
   const pickupIds=q=>new Set(q.methods.filter(m=>m.channel==='pickup-in-point' && m.pickupPointId).map(m=>m.pickupPointId));
   const shared=new Map();
   if (complete) {
@@ -194,9 +201,9 @@ export async function retailerBasket({retailer, items, zipcode, coordinates}, so
   const failures = quotes.filter(q => q.localStatus === 'lookup_failed').length;
   let status = 'unconfirmed';
   if (complete) status = 'fulfillable';
-  else if (failures && failures === quotes.length) status = 'source_failed';
+  else if (fullyQuoted && failures === quotes.length) status = 'source_failed';
   else if (failures || available.length) status = 'partial';
-  else if (quotes.length && quotes.every(q => q.localStatus === 'unavailable')) status = 'unavailable';
+  else if (fullyQuoted && quotes.every(q => q.localStatus === 'unavailable')) status = 'unavailable';
   return {...base,status,
     items:quotes.map(q=>listed(q,retailer)),commonPickupPoints:[...shared.values()],
     deliveryForEveryItem:complete && quotes.every(q=>q.methods.some(m=>m.channel==='delivery')),

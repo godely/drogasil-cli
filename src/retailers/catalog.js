@@ -143,10 +143,12 @@ export async function catalogInfo({retailer, queries, page = 1, limit = 20, scop
     // National presentations by name can still be checked during a retailer outage.
     // A local code requires the name from this very retailer.
     const lookup = bySku ? result.products[0]?.name : query;
+    if (scope === 'brazil') result.catalogStatus = result.status;
     if (scope === 'brazil' && lookup) {
       try {
         const national = (await nationalInfo([lookup], {scope})).results[0];
         result.brazil = national?.brazil ?? null;
+        if (result.status === 'no_match' && result.brazil?.presentations?.length) result.status = 'matches';
         if (result.brazil?.lookupFailed || (!result.brazil && national?.status === 'source_failed'))
           result.nationalStatus = 'source_failed';
       } catch {

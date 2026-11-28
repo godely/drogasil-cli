@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { catalogInfo } from 'drogasil-cli/retailer-workflows';
+import { catalogInfo, medicationCard, retailerBasket } from 'drogasil-cli/retailer-workflows';
 
 test('national evidence uses the partner SKU title and never imports another catalog listing', async () => {
   const calls = [];
@@ -118,4 +118,40 @@ test('pack facts with conflicting manufacturer evidence are kept apart from veri
   assert.match(rendered,/Fabricante não confirmado.*Empresa A e Empresa B/);
   assert.ok(claims.every(claim => rendered.includes(claim.url)));
   assert.equal(infoExitCode(results),2);
+});
+
+test('strength inference keeps recognized denominators and omits unsupported ones', () => {
+  const strengths = name => medicationCard({name}).strengths;
+  assert.deepEqual(strengths('Exemplo 10 mg/m²'), []);
+  assert.deepEqual(strengths('Exemplo 10 mg / g²'), []);
+  assert.deepEqual(strengths('Exemplo 10 mg/5 ml'), ['10 mg/5 ml']);
+  assert.deepEqual(strengths('Exemplo 10 mg'), ['10 mg']);
+});
+
+test('national presentations count as matches when the retailer has no products', async () => {
+  const {results} = await catalogInfo({retailer:'partner', queries:['Exemplo'], scope:'brazil'},
+    {search: async () => []}, async () => ({results:[{brazil:{presentations:[{name:'Exemplo'}]}}]}));
+  assert.equal(results[0].status, 'matches');
+  assert.equal(results[0].catalogStatus, 'no_match');
+  assert.deepEqual(results[0].products, []);
+});
+
+test('basket fulfillment requires one matching quote per requested line', async () => {
+  const items = ['12','13'].map(sku => ({sku, sellerId:'1', quantity:2}));
+  const quotes = items.map(({quantity, ...offer}) => ({...offer, requestedQuantity:quantity,
+    currentPrice:3, localStatus:'available', methods:[{channel:'delivery'}]}));
+  const check = (response, requested = items) => retailerBasket({retailer:'partner', items:requested},
+    {product:async sku => [{sku, sellerId:'1'}], basket:async () => response});
+  for (const response of [[quotes[0]], [quotes[0],quotes[0]], [quotes[0], {...quotes[1], sellerId:'2'}],
+    [quotes[0], {...quotes[1], requestedQuantity:1}]]) {
+    const result = await check(response);
+    assert.equal(result.status, 'partial');
+    assert.equal(result.estimatedProductTotalBRL, null);
+    assert.equal(result.deliveryForEveryItem, false);
+  }
+  assert.equal((await check([])).status, 'unconfirmed');
+  assert.equal((await check([quotes[0]], [items[0],items[0]])).status, 'partial');
+  const complete = await check([...quotes].reverse());
+  assert.equal(complete.status, 'fulfillable');
+  assert.equal(complete.estimatedProductTotalBRL, 12);
 });
