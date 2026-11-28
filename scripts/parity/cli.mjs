@@ -23,7 +23,7 @@ for (const [cmd, spec] of Object.entries(contract.commands)) {
   const section = sections.find(s => new RegExp('^(?:Usage: )?(?:' + name + ' )?' + cmd + '(?:\\s|$)', 'm').test(s));
   if (!section) { gaps.push(cmd); continue; }
   for (const flag of Object.keys(spec.flags)) {
-    if (flag === 'help' || flag === 'json') continue;
+    if (flag === 'help') continue;
     if (!new RegExp('--' + flag + '(?![\\w-])').test(section)) gaps.push(cmd + ' --' + flag);
   }
   for (const action of spec.actions ?? []) {
@@ -53,8 +53,17 @@ if (process.argv.includes('--candidate') || process.argv.includes('--strict')) {
     }
   }
 }
-const batch = run(['product', '999999999','999999998','999999999','--json']);
-if (batch.status !== 3 || JSON.stringify(JSON.parse(batch.stdout || 'null')) !== '[null,null,null]') gaps.push('product: ordered missing slots');
+const batch = run(['product', '101', '999999999', '202', '101', '--json']);
+const slots = JSON.parse(batch.stdout || 'null');
+// Partner slots contain offers, while Drogasil returns a single catalog record.
+const identities = Array.isArray(slots) && slots.map(slot => {
+  if (slot === null) return null;
+  const records = Array.isArray(slot) ? slot : [slot];
+  return records.map(record => String(record?.sku));
+});
+if (batch.status !== 3 || JSON.stringify(identities) !== JSON.stringify([['101'], null, ['202'], ['101']])) {
+  gaps.push('product: ordered batch slots');
+}
 gaps.sort();
 if (process.argv.includes('--print')) console.log(JSON.stringify(gaps, null, 2));
 else {

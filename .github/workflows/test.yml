@@ -49,9 +49,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - release: main
-            pm: main
-            dsp: main
+          - release: baseline
+            pm: 4b42511aeb8c6f621c9e160d6ba00ded12a83c1e
+            dsp: f5fca555b620a314df2319f44460d6330e350606
             flags: ''
           - release: tested
             pm: f92c40ab2902d7506e812967a67adb10850ca93f

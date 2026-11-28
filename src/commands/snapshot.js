@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { collectSnapshot, readSnapshot } from '../snapshots/index.js';
 export const actions = ['collect', 'read', 'export'];
-export const usage = 'Usage: drogasil snapshot collect <query...> [--limit 20] | read <run-id> [--offset 0 --limit 20] | export <run-id> --format json|csv|xlsx';
+export const usage = 'Usage: drogasil snapshot collect <query...> [--limit 20] | read <run-id> [--offset 0 --limit 20] | export <run-id> --format json|csv|xlsx [--json]';
 export const options = { limit: { type: 'string' }, offset: { type: 'string' }, format: { type: 'string' } };
 export async function run([action, ...args], opts) {
   if (!actions.includes(action)) { console.error(usage); return 1; }

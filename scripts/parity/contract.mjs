@@ -13,7 +13,7 @@ for (const name of Object.keys(COMMANDS).sort()) {
   contract.commands[name] = { flags: Object.fromEntries(flags), ...(command.actions && { actions: command.actions }) };
 }
 registerDrogasilTools({ registerTool(name, { inputSchema }) {
-  contract.tools[name] = Object.keys(inputSchema).sort();
+  contract.tools[name] = z.toJSONSchema(z.object(inputSchema), { io: 'input', target: 'draft-7' });
 } }, z, []);
 if (process.argv.includes('--print')) {
   console.log(JSON.stringify(contract, null, 2));
