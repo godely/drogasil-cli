@@ -59,3 +59,9 @@ export function formatHours(service) {
   if (is24h(service)) return '24h';
   return `${hhmm(service.hourOpenNormaly)}-${hhmm(service.hourEndNormaly)}`;
 }
+
+export function optionError(message, json, terminalMessage = message) {
+  if (json) printJson({ error: message });
+  else process.stderr.write(terminalMessage + '\n');
+  return 1;
+}

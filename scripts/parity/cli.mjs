@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const name = process.argv[2], cli = process.argv[3];
-if (!name || !cli) throw Error('Usage: node cli.mjs NAME EXECUTABLE [--strict | --print]');
+if (!name || !cli) throw Error('Usage: node cli.mjs NAME EXECUTABLE [--strict | --candidate] [--print]');
 const contract = JSON.parse(await readFile(new URL('./drogasil.json', import.meta.url)));
 function run(args, fixture = 'missing') {
   const res = spawnSync(process.execPath, ['--import', fileURLToPath(new URL('./no-network.mjs', import.meta.url)), cli, ...args], {
@@ -39,7 +39,30 @@ for (const [label, args, expected, fixture] of [
 ]) {
   if (run(args, fixture).status !== expected) gaps.push('exit: ' + label);
 }
-if (process.argv.includes('--candidate') || process.argv.includes('--strict')) {
+const strict = process.argv.slice(4).some(flag => flag === '--strict' || flag === '--candidate');
+if (strict) {
+  const optionCases = [
+    [['compare', '1', '--store', 'nearest'], /--store.*nearest.*(?:location|origin)/i],
+    [['compare', '1', '--expand'], /--expand.*(?:location|origin)/i],
+    [['plan', '1', '--lat', '1', '--lon', '1', '--store', 'nearest', '--expand'], /--expand.*(?:across stores|--store)/i],
+    [['compare', '1', '--lat', '1', '--lon', '1', '--store', 'arbitrary'], /--store.*nearest/i],
+    [['stock', '1', '--lat', '1', '--lon', '1', '--max-branches', '3'], /--max-branches.*cep/i],
+    [['stock', '1', '--cep', '01001000', '--all', '--min-qty', '1'], /--all.*(?:--min-qty|minimum quantity)/i],
+    [['stock', '1', '--cep', '01001000', '--max-branches', '31'], /--max-branches.*\b3\b.*\b30\b/i],
+  ];
+  for (const [args, expectedError] of optionCases) {
+    if (run(args).status !== 1) gaps.push('expected usage exit: ' + args.join(' '));
+    const result = run([...args, '--json']);
+    let message;
+    try {
+      message = JSON.parse(result.stdout)?.error;
+    } catch {
+      // Empty stdout and terminal text are both invalid JSON responses.
+    }
+    if (result.status !== 1 || typeof message !== 'string' || !expectedError.test(message)) {
+      gaps.push('expected JSON option error: ' + args.join(' '));
+    }
+  }
   for (const limit of ['1','51','100','1000']) {
     // The second page avoids first-page spelling suggestions. The source is empty.
     const args=['search','1234567','--page','2','--limit',limit];
@@ -58,10 +81,9 @@ if (batch.status !== 3 || JSON.stringify(JSON.parse(batch.stdout || 'null')) !==
 gaps.sort();
 if (process.argv.includes('--print')) console.log(JSON.stringify(gaps, null, 2));
 else {
-  const released = process.argv.includes('--candidate');
-  const known = JSON.parse(await readFile(new URL(released ? './candidate-gaps.json' : './gaps.json', import.meta.url)));
+  const known = JSON.parse(await readFile(new URL('./gaps.json', import.meta.url)));
   console.log(name + ': ' + gaps.length + ' open checks\n' + gaps.join('\n'));
-  const allowed=process.argv.includes('--strict') ? [] : known[name];
+  const allowed=strict ? [] : known[name];
   const regressions=gaps.filter(gap=>!allowed.includes(gap) && !allowed.includes(gap.split(' --')[0]));
   assert.deepEqual(regressions, [], 'Untracked CLI parity regression');
 }

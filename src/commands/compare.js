@@ -2,7 +2,7 @@ import { compareProducts, normalizeOrigin } from '../api/compare.js';
 import { planPurchase, medicationType } from '../api/index.js';
 import { acceptExpansion, describeRange } from './stock-range.js';
 import { renderPurchase, purchaseExitCode } from './plan.js';
-import { formatPrice, printJson, table } from '../format.js';
+import { optionError, formatPrice, printJson, table } from '../format.js';
 
 export const usage = 'Usage: drogasil compare <medication name and strength | SKU> [--cep CEP | --lat LAT --lon LON] [--store nearest | --expand] [--json]';
 export const options = {
@@ -28,13 +28,10 @@ export async function run(positionals, values) {
     process.stderr.write(err.message + '\n');
     return 1;
   }
-  if (values.store && (values.store !== 'nearest' || !origin)) {
-    process.stderr.write('--store nearest requires a location.\n');
-    return 1;
-  }
+  if (values.store && values.store !== 'nearest') return optionError('--store must be nearest.', values.json);
+  if (values.store && !origin) return optionError('--store nearest requires a location.', values.json);
   if (values.expand && (!origin || values.store)) {
-    process.stderr.write('--expand requires a location and a search across stores.\n');
-    return 1;
+    return optionError('--expand requires a location and a search across stores.', values.json);
   }
   if (origin && !values.json) {
     const opts = { origin, store: values.store, expandSku: true, expandSearch: values.expand };

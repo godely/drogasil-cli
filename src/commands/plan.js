@@ -2,7 +2,7 @@ import { createInterface } from 'node:readline/promises';
 import { acceptExpansion, describeRange } from './stock-range.js';
 import { planPurchase, tableLabel } from '../api/purchase.js';
 import { normalizeOrigin } from '../api/compare.js';
-import { formatAddress, formatKm, formatPrice, printJson, table } from '../format.js';
+import { optionError, formatAddress, formatKm, formatPrice, printJson, table } from '../format.js';
 
 export const usage = `Usage: drogasil plan "<medication A>" ["<medication B>" ...] (--cep CEP | --lat LAT --lon LON)
   [--store nearest | --expand] [--quantity A=2] [--sku A=123] [--brand B=Frontal] [--generic B] [--brand-only A | --include-generics A] [--json]
@@ -156,8 +156,7 @@ export async function run(positionals, values) {
     return purchaseExitCode(result);
   } catch (error) {
     if (!(error instanceof TypeError) && !/invalid (CEP|latitude|longitude)|either --cep/.test(error.message)) throw error;
-    process.stderr.write(error.message + '\n');
-    return 1;
+    return optionError(error.message, values.json);
   }
 }
 
