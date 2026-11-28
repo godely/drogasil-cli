@@ -1,3 +1,4 @@
+import { countedPack, directCountedListing } from './counted-pack.js';
 import { getProductsBySku, searchProducts } from './algolia.js';
 import { normalizeCep } from './graphql.js';
 import { resolveMedication, ingredientPresentations } from './medications.js';
@@ -162,7 +163,7 @@ async function referenceOptions(query, release) {
   return exact.length ? exact : candidates;
 }
 
-export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false, includeGenerics, expandSearch = false } = {}) {
+export async function compareProducts(query, { origin = null, store, resolveNames = false, includeUnpriced = false, directShopping = false, includeGenerics, expandSearch = false } = {}) {
   if (!['string', 'number'].includes(typeof query) || !String(query).trim()) throw new TypeError('expected a medication name or SKU');
   origin = normalizeOrigin(origin);
   if (store && (!origin || (store !== 'nearest' && !/^\d+$/.test(store)))) {
@@ -221,6 +222,13 @@ export async function compareProducts(query, { origin = null, store, resolveName
   }
   if (!key || descriptions.some(item => item.key !== key)) {
     if (resolved?.kind === 'ingredient' && !origin) {
+      const pack = directShopping && countedPack(resolved.suffix);
+      if (pack && refs.every(product => directCountedListing(product, resolved.name, pack))) {
+        const products = refs.map(p => Number.isFinite(p.price) && p.price > 0 ? p : { ...p, price: null })
+          .sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) || String(a.sku).localeCompare(String(b.sku)));
+        return { ...info, status: 'incomplete_presentation', matchBasis: 'direct_requested_pack',
+          missingFields: [...new Set(descriptions.flatMap(d => d.missingFields))], products };
+      }
       const groups = new Map();
       for (const product of refs) {
         const id = presentation(product) ?? 'unverified:' + product.sku;

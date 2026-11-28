@@ -1,3 +1,5 @@
+import { resolveMedication } from '../api/medications.js';
+import { countedOffers } from './counted-offers.js';
 import { compareProducts, medicationType, samePack, searchProducts } from '../api/index.js';
 import { validBarcode as validGtin } from '../api/retail-prices.js';
 import { catalogType } from './catalog.js';
@@ -8,6 +10,7 @@ function listed(row, retailerId) {
 }
 
 const references = {
+  resolve: resolveMedication,
   async byGtin(gtin) {
     const {hits} = await searchProducts(gtin,{hitsPerPage:100});
     return hits.filter(hit=>hit.isActive !== false && String(hit.eanCode)===gtin);
@@ -19,6 +22,13 @@ const references = {
 // must independently list every suggested generic with the same barcode and pack.
 export async function retailerComparison({retailer, query, includeGenerics}, source, reference = references) {
   const exact = /^\d+$/.test(query);
+  if (!exact && /\d+\s*(?:comprimidos?|c[áa]psulas?)\b/iu.test(query) && reference.resolve) {
+    const identity = await reference.resolve(query).catch(() => null);
+    if (identity) {
+      const direct = await countedOffers(retailer, query, source, identity, reference);
+      if (direct) return direct;
+    }
+  }
   const discovery = exact ? await source.product(query) : await source.search(query,1,2);
   const distinct = [...new Set(discovery.map(row=>row.sku))];
   if (!distinct.length) return {retailerId:retailer,status:exact?'unknown_sku':'no_match',products:[]};

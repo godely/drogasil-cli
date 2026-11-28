@@ -58,6 +58,7 @@ async function prepareItem(item, label, catalog, expandSku) {
     return { table, products: [] };
   }
   table.status = result.status;
+  if (result.matchBasis) table.matchBasis = result.matchBasis;
   if (result.interpretation) table.interpretation = result.interpretation;
   if (result.missingFields) table.missingFields = result.missingFields;
   let products = result.products;
@@ -149,7 +150,7 @@ export async function planPurchase(items, { origin, store, expandSku = false, co
     }
     if (pendingBrands.length) return { status: 'needs_generic_preference', pendingBrands, tables: [], plans: [] };
   }
-  const catalog = memoizeRequest(query => compareProducts(query, { resolveNames: true, includeUnpriced: true }));
+  const catalog = memoizeRequest(query => compareProducts(query, { resolveNames: true, includeUnpriced: true, directShopping: true }));
   const prepared = await Promise.all(normalized.map((item, i) => prepareItem(item, tableLabel(i), catalog, expandSku)));
   const minimums = new Map();
   for (const { table, products } of prepared) {
@@ -175,6 +176,12 @@ export async function planFromInventory(prepared, stocks, {store, nearestStore, 
     const table = tables[index];
     const choices = [];
     populate(table, products, stocks, store === 'nearest', nearestStore?.id, choices);
+    const priced = choices.filter(choice => Number.isFinite(choice.cost));
+    if (priced.length) {
+      const best = priced.reduce((a, b) => b.cost < a.cost || (b.cost === a.cost &&
+        (b.store.distanceKm ?? Infinity) < (a.store.distanceKm ?? Infinity)) ? b : a);
+      table.lowestPricedStockedOption = best.option;
+    }
     // Several incomplete direct hits can be shown, but the user must select
     // a SKU before one of them is used as a substitute in a shopping plan.
     if (products.length > 1 && table.status === 'incomplete_presentation' && prepared.length > 1) {
