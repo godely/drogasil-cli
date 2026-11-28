@@ -40,16 +40,22 @@ with sqlite3.connect(path, timeout=15) as db:
         db.execute("UPDATE runs SET state=?,error=? WHERE id=?", (args["state"],args.get("error"),rid))
         db.execute("INSERT OR REPLACE INTO stats VALUES (?,?)", (rid,json.dumps(args.get("stats",{}))))
     elif op == "read":
-        meta = db.execute("SELECT state,started,pid,error FROM runs WHERE id=?", (rid,)).fetchone()
-        if meta is None:
-            sys.exit("Unknown snapshot run")
-        state, started, pid, error = meta
-        if state == "running":
+        collector = db.execute("SELECT pid FROM runs WHERE id=? AND state='running'", (rid,)).fetchone()
+        if collector:
+            pid, = collector
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
-                state, error = "failed", "Collector stopped before completion"
-                db.execute("UPDATE runs SET state=?,error=? WHERE id=?", (state,error,rid))
+                # The collector can commit its terminal state just before exiting.
+                db.execute("UPDATE runs SET state='failed', error=? WHERE id=? AND state='running' AND pid=?",
+                           ("Collector stopped before completion", rid, pid))
+                db.commit()
+        # The WAL reader sees one committed version while a collector continues writing.
+        db.execute("BEGIN")
+        meta = db.execute("SELECT state,started,error FROM runs WHERE id=?", (rid,)).fetchone()
+        if meta is None:
+            sys.exit("Unknown snapshot run")
+        state, started, error = meta
         count = db.execute("SELECT COUNT(*) FROM rows WHERE run=?", (rid,)).fetchone()[0]
         offset, limit = args["offset"], args["limit"]
         rows = db.execute("SELECT data FROM rows WHERE run=? ORDER BY rowid LIMIT ? OFFSET ?", (rid,limit,offset))

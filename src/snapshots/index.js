@@ -2,12 +2,18 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as pause } from 'node:timers/promises';
+import { HttpError, NetworkError } from '../api/http.js';
 import { searchProducts } from '../api/algolia.js';
 import { readStorefront } from '../api/storefront.js';
 import { partnerSnapshotRecord } from '../retailers/snapshot-record.js';
 
 const storeScript = fileURLToPath(new URL('./db.py', import.meta.url));
 export const DEFAULT_SNAPSHOT_QUERY = 'paracetamol';
+export const snapshotFields = Object.freeze([
+  'sku', 'name', 'brand', 'categories', 'categoryPath', 'productUrl', 'currentPrice',
+  'listPrice', 'discountPercentage', 'currency', 'inStock', 'stockSignal', 'seller',
+  'searchQuery', 'sourceUrl', 'scrapedAt', 'retailerId', 'sellerId', 'offers', 'priceScope',
+]);
 async function store(input) {
   const child = spawn('python3', [storeScript], { stdio: ['pipe', 'pipe', 'pipe'] });
   const output = [], errors = [];
@@ -23,18 +29,43 @@ async function store(input) {
   return output.length ? JSON.parse(Buffer.concat(output)) : undefined;
 }
 
-export async function readSnapshot(id, { offset = 0, limit = 20 } = {}) {
+export async function readSnapshot(id, { offset = 0, limit = 20, fields } = {}) {
   if (typeof id !== 'string' || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
     throw new TypeError('Invalid run ID, offset or page size');
   }
+  if (fields !== undefined && (!Array.isArray(fields) || !fields.length)) {
+    throw new TypeError('Expected a nonempty list of snapshot field names');
+  }
+  const selected = fields && [...new Set(fields)];
+  if (selected?.some(field => !snapshotFields.includes(field))) throw new TypeError('Unknown snapshot field');
   const page = await store({ op: 'read', id, offset, limit });
   page.records = page.records.map(record => {
     if (record.retailerId && Array.isArray(record.offers) && !Object.hasOwn(record, 'scrapedAt')) {
-      return partnerSnapshotRecord(record);
+      record = partnerSnapshotRecord(record);
     }
-    return record;
+    if (!selected) return record;
+    const projected = {};
+    for (const field of selected) {
+      if (Object.hasOwn(record, field)) projected[field] = record[field];
+    }
+    return projected;
   });
   return page;
+}
+
+// Only transient errors from read-only upstream operations qualify for a retry.
+function retryDelay(error, retries) {
+  if (retries >= 2) return null;
+  if (!(error instanceof NetworkError) && !(error instanceof HttpError &&
+    (error.status === 429 || (error.status >= 500 && error.status <= 599)))) return null;
+  const header = error.retryAfter?.trim();
+  let requested = 0;
+  if (header) {
+    requested = /^\d+$/.test(header) ? Number(header) * 1000 : Date.parse(header) - Date.now();
+    if (!Number.isFinite(requested)) requested = 0;
+    if (requested > 30000) return null;
+  }
+  return Math.max(750 * 2 ** retries, requested);
 }
 
 export async function collectSnapshot(queries = [DEFAULT_SNAPSHOT_QUERY], { maxItems = 20, background = false } = {}, sources = {}) {
@@ -46,19 +77,46 @@ export async function collectSnapshot(queries = [DEFAULT_SNAPSHOT_QUERY], { maxI
   await store({ op: 'create', id, at: new Date().toISOString(), pid: process.pid });
   async function collect() {
     const seen = new Set();
-    const stats = { searchPages: 0, rowsScanned: 0, productRequests: 0, productPageBytes: 0, uniqueProducts: 0 };
+    const stats = { searchPages:0, searchRequests:0, rowsScanned:0, productRequests:0, productPageBytes:0,
+      observedResponses:0, responseBodyBytes:0, retries:0, skippedServices:0, skippedDuplicates:0, invalidSkus:0, uniqueProducts:0 };
+    const sleep = sources.sleep ?? pause;
+    const onBytes = bytes => { stats.observedResponses++; stats.responseBodyBytes += bytes; };
+    const onProductBytes = (decoded, transferred) => {
+      onBytes(decoded);
+      if (Number.isSafeInteger(transferred) && transferred >= 0) {
+        stats.productTransferBytes = (stats.productTransferBytes ?? 0) + transferred;
+      }
+    };
+    let lastStart = -Infinity;
+    async function attempt(counter, readSource) {
+      for (let retries = 0; ; retries++) {
+        if (!sources.search && !sources.read) {
+          const wait = lastStart + 750 - performance.now();
+          if (wait > 0) await sleep(Math.ceil(wait));
+          lastStart = performance.now();
+        }
+        stats[counter]++;
+        try { return await readSource(); }
+        catch (error) {
+          const delay = retryDelay(error, retries);
+          if (delay === null) throw error;
+          stats.retries++;
+          await sleep(delay);
+        }
+      }
+    }
     try {
       collection: for (const query of new Set(queries.map(q => q.trim()))) {
         for (let page = 0; page < 30; page++) {
           stats.searchPages++;
-          const data = await search(query, { hitsPerPage: 100, page });
+          const data = await attempt('searchRequests', () => search(query, {hitsPerPage:100, page, onResponseBytes:onBytes}));
           for (const hit of data.hits) {
             stats.rowsScanned++;
             const sku = String(hit.sku);
-            if (!/^\d+$/.test(sku) || seen.has(sku) || /^(service|serviço)$/i.test(hit.type ?? '')) continue;
-            if (!sources.read) await pause(750);
-            stats.productRequests++;
-            const { snapshot, html } = await read(hit, query);
+            if (!/^\d+$/.test(sku)) { stats.invalidSkus++; continue; }
+            if (/^(service|serviço)$/i.test(hit.type ?? '')) { stats.skippedServices++; continue; }
+            if (seen.has(sku)) { stats.skippedDuplicates++; continue; }
+            const {snapshot, html} = await attempt('productRequests', () => read(hit, query, onProductBytes));
             stats.productPageBytes += Buffer.byteLength(html ?? '');
             await store({ op: 'row', id, row: snapshot });
             seen.add(sku);

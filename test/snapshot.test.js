@@ -6,6 +6,12 @@ import path from 'node:path';
 import { collectSnapshot, readSnapshot } from '../src/snapshots/index.js';
 import { catalogSnapshot } from '../src/retailers/catalog.js';
 
+test('paginated reads stay consistent with concurrent SQLite commits and collector exits', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  execFileSync('python3', [fileURLToPath(new URL('./snapshot-read-concurrency.py', import.meta.url))], {stdio: 'pipe'});
+});
+
 test('simultaneous collections persist every run when the snapshot database is new', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'snapshot-first-use-'));
   const previous = process.env.DROGASIL_SNAPSHOT_DB;
@@ -139,4 +145,101 @@ print(json.dumps([record['seller'],record['currentPrice'],record['stockSignal'],
   assert.equal(old.records[1].currentPrice, null);
   assert.equal(old.records[1].inStock, null);
   assert.equal(old.records[1].offers.length, 2);
+  const projection = await readSnapshot(old.runId, {fields:['currentPrice', 'seller', 'inStock']});
+  assert.deepEqual(projection.records, [
+    {currentPrice:5, seller:'Loja B', inStock:true},
+    {currentPrice:null, seller:null, inStock:null},
+  ]);
+  for (const fields of [[], ['priceTypo'], ['offers.price'], 'name', null]) {
+    await assert.rejects(readSnapshot(old.runId, {fields}), TypeError);
+  }
+});
+
+test('transient failures retry the same operation, retain first-query attribution and count observed bytes', async t => {
+  const {HttpError, NetworkError} = await import('../src/api/http.js');
+  const directory = await mkdtemp(path.join(tmpdir(),'snapshot-retry-'));
+  const previous = process.env.DROGASIL_SNAPSHOT_DB;
+  process.env.DROGASIL_SNAPSHOT_DB = path.join(directory,'runs.sqlite');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DROGASIL_SNAPSHOT_DB;
+    else process.env.DROGASIL_SNAPSHOT_DB = previous;
+    await rm(directory,{recursive:true,force:true});
+  });
+  const delays = [];
+  const reads = [];
+  let searches = 0;
+  const result = await collectSnapshot(['first','second'],{},{
+    sleep:async ms => delays.push(ms),
+    search:async (term,{onResponseBytes}) => {
+      onResponseBytes(10);
+      if (++searches === 1) {
+        const error = new HttpError(429,'https://example.test',null);
+        error.retryAfter = '2';
+        throw error;
+      }
+      return {nbPages:1, hits:term === 'first' ?
+        [{sku:'1'}, {sku:'2',type:'Serviço'}, {sku:null}] : [{sku:'1'}, {sku:'3'}]};
+    },
+    read:async ({sku}, query, onBytes) => {
+      reads.push(sku);
+      if (reads.length === 1) throw new NetworkError('example',new Error('timeout'),100);
+      if (reads.length === 2) throw new HttpError(503,'example',null);
+      onBytes(5, 3); return {snapshot:{sku,searchQuery:query},html:'abcde'};
+    },
+  });
+  assert.equal(result.state,'succeeded');
+  assert.deepEqual(reads,['1','1','1','3']);
+  assert.deepEqual(delays,[2000,750,1500]);
+  assert.deepEqual(result.records.map(r => [r.sku,r.searchQuery]),[['1','first'],['3','second']]);
+  assert.deepEqual(result.stats,{searchPages:2,searchRequests:3,rowsScanned:5,productRequests:4,productPageBytes:10,
+    observedResponses:5,responseBodyBytes:40,productTransferBytes:6,retries:3,skippedServices:1,skippedDuplicates:1,invalidSkus:1,uniqueProducts:2});
+});
+
+test('permanent errors and long rate limits stop immediately; exhausted transient retries keep earlier records', async t => {
+  const {HttpError} = await import('../src/api/http.js');
+  const directory = await mkdtemp(path.join(tmpdir(),'snapshot-stop-'));
+  const previous = process.env.DROGASIL_SNAPSHOT_DB;
+  process.env.DROGASIL_SNAPSHOT_DB = path.join(directory,'runs.sqlite');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.DROGASIL_SNAPSHOT_DB;
+    else process.env.DROGASIL_SNAPSHOT_DB = previous;
+    await rm(directory,{recursive:true,force:true});
+  });
+  for (const [status, retryAfter, retries] of [[403,null,0],[401,null,0],[404,null,0],[429,'60',0],[503,null,2],[200,null,0]]) {
+    const error = new HttpError(status,'example',null);
+    error.retryAfter = retryAfter;
+    const result = await collectSnapshot(['one'],{},{
+      sleep:async () => {}, search:async () => ({nbPages:1,hits:[{sku:'1'},{sku:'2'}]}),
+      read:async hit => { if (hit.sku === '2') throw error; return {snapshot:hit}; },
+    });
+    assert.equal(result.state,'failed');
+    assert.deepEqual(result.records,[{sku:'1'}]);
+    assert.equal(result.stats.retries,retries);
+    assert.equal(result.stats.productRequests,2+retries);
+  }
+});
+
+test('spreadsheets keep optional columns first seen after the first row, including columns beyond Z', async () => {
+  const {execFileSync} = await import('node:child_process');
+  const {fileURLToPath} = await import('node:url');
+  const script = fileURLToPath(new URL('../src/snapshots/export.py',import.meta.url));
+  const base = Object.fromEntries(Array.from({length:26},(_,i) => ['field'+i, 'text']));
+  const rows = [{sku:'00012',...base}, {sku:'00013',extraStock:0,promoted:false,offers:['A','B']}];
+  const read = `
+import csv,io,json,sys,zipfile,xml.etree.ElementTree as E
+if sys.argv[1] == "csv":
+    r = list(csv.DictReader(io.StringIO(sys.stdin.read())))[1]
+    print(json.dumps([r["sku"],r["extraStock"],r["promoted"],r["offers"]]))
+else:
+    with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
+        rows = E.fromstring(z.read("xl/worksheets/sheet1.xml")).findall(".//{*}row")
+    last = {c.get("r"): (c.get("t"), "".join(c.itertext())) for c in rows[2]}
+    print(json.dumps([last[k] for k in ["A3","AB3","AC3","AD3"]]))
+`;
+  for (const format of ['csv','xlsx']) {
+    const bytes = execFileSync('python3',[script,format],{input:JSON.stringify(rows)});
+    const result = JSON.parse(execFileSync('python3',['-c',read,format],{input:bytes}));
+    assert.deepEqual(result,format === 'csv' ? ['00013','0','False','["A", "B"]'] :
+      [['inlineStr','00013'],[null,'0'],['b','0'],['inlineStr','["A", "B"]']]);
+  }
 });

@@ -1,5 +1,5 @@
 import { searchBrandPage } from '../retailers/presentation-search.js';
-import { DEFAULT_SNAPSHOT_QUERY } from '../snapshots/index.js';
+import { DEFAULT_SNAPSHOT_QUERY, snapshotFields } from '../snapshots/index.js';
 import { compareRetailPrices, collectSnapshot, readSnapshot, compareProducts, medicationSearch, getProductsBySku, searchStockWindows, stockQuantity, planPurchase, getMedicationInfo, productInfo } from './index.js';
 
 const shoppingRoute = 'For purchase or stock requests naming a commercial brand, ask once which named brands may include generics and wait for the reply before using any Drogasil tool. An explicit preference or exact SKU settles only its own item. For stock or purchase planning, send every item to plan_purchase together once preferences are settled.';
@@ -10,6 +10,11 @@ export const shoppingInstructions = [shoppingRoute, radiusRoute, factsRoute].joi
 
 export function snapshotQueriesSchema(z) {
   return z.array(z.string().trim().min(1).max(150)).min(1).max(10).default([DEFAULT_SNAPSHOT_QUERY]);
+}
+
+export function snapshotFieldsSchema(z) {
+  return z.array(z.enum(snapshotFields)).min(1).optional()
+    .describe('Return only these top-level product fields in the requested order. Omit for full records.');
 }
 
 function storeInfo(branch, quantity) {
@@ -85,7 +90,7 @@ export function registerDrogasilTools(server, z, retailers) {
     return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
   });
   tool('read_catalog_snapshot', 'Read a bounded page of an existing catalog run. Show failed or running results as partial. Use nextOffset for continuation.',
-    { runId: z.string().uuid(), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(100).default(20) },
-    ({ runId, offset, limit }) => readSnapshot(runId, { offset, limit }));
+    { runId: z.string().uuid(), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(100).default(20), fields: snapshotFieldsSchema(z) },
+    ({ runId, ...page }) => readSnapshot(runId, page));
   return server;
 }

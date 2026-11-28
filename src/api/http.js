@@ -93,7 +93,7 @@ export class NetworkError extends Error {
  * @param {Record<string,string>} [headers]
  * @returns {Promise<any>}
  */
-export async function postJson(url, body, headers = {}) {
+export async function postJson(url, body, headers = {}, onResponseBytes) {
   const { timeoutMs } = getSettings();
   await throttle();
 
@@ -115,6 +115,7 @@ export async function postJson(url, body, headers = {}) {
     throw new NetworkError(url, err, timeoutMs);
   }
 
+  onResponseBytes?.(Buffer.byteLength(text));
   let json;
   let parsed = false;
   try {
@@ -126,7 +127,11 @@ export async function postJson(url, body, headers = {}) {
     parsed = false;
   }
 
-  if (!res.ok) throw new HttpError(res.status, url, parsed ? json : text);
+  if (!res.ok) {
+    const error = new HttpError(res.status, url, parsed ? json : text);
+    error.retryAfter = res.headers.get('retry-after');
+    throw error;
+  }
   if (!parsed) {
     throw new HttpError(res.status, url, text, `non-JSON response (HTTP ${res.status}) from ${url}`);
   }
