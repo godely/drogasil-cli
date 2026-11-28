@@ -1,5 +1,8 @@
 // Anonymous product pages expose the rendered offer and the structured data used to render it.
 import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { HttpError, NetworkError } from './http.js';
 
@@ -43,26 +46,37 @@ export function parseStorefront(html, hit, query, at = new Date()) {
     sourceUrl: site + '/search?w=' + encodeURIComponent(query), scrapedAt: at.toISOString() };
 }
 
-export async function readStorefront(hit, query, onResponseBytes) {
-  const url = productUrl(hit.url);
-  let output;
+export async function fetchStorefrontPage(url, onResponseBytes) {
+  // Under Linux, curl cannot reopen Node's child-process stderr socket as a file.
+  const directory = await mkdtemp(join(tmpdir(), 'drogasil-offer-'));
+  const headersPath = join(directory, 'headers');
   try {
-    output = await exec('curl', ['--silent', '--show-error', '--max-time', '20', '--max-filesize', '8000000',
-      '--dump-header', '/dev/stderr', '--write-out', '\n%{http_code}', '--', url], {maxBuffer:8_500_000});
+    const {stdout} = await exec('curl', ['--silent', '--show-error', '--max-time', '20', '--max-filesize', '8000000',
+      '--dump-header', headersPath, '--write-out', '\n%{http_code}', '--', url], {maxBuffer:8_500_000,encoding:'buffer'});
+    const end = stdout.lastIndexOf(10);
+    const status = Number(stdout.subarray(end + 1).toString('ascii'));
+    const body = stdout.subarray(0, end);
+    onResponseBytes?.(body.length);
+    if (status < 200 || status >= 300 || !Number.isInteger(status)) {
+      const error = new HttpError(status, url, null, 'Product page returned HTTP ' + status);
+      const headers = await readFile(headersPath, 'utf8');
+      const finalHeaders = headers.trimEnd().split(/\r?\n\r?\n/).filter(block => /^HTTP\//i.test(block)).at(-1);
+      error.retryAfter = finalHeaders?.match(/^retry-after:[ \t]*([^\r\n]+)/im)?.[1];
+      throw error;
+    }
+    return body.toString('utf8');
   } catch (error) {
-    // Never include response headers or a partial page in the stored error.
     if ([5, 6, 7, 18, 28, 52, 55, 56].includes(error.code))
       throw new NetworkError(url, new Error('curl transport error ' + error.code), 20000);
-    throw new Error('Product page download failed (' + error.code + ')');
-  }
-  const end = output.stdout.lastIndexOf('\n');
-  const status = Number(output.stdout.slice(end + 1));
-  const html = output.stdout.slice(0, end);
-  onResponseBytes?.(Buffer.byteLength(html));
-  if (status < 200 || status >= 300 || !Number.isInteger(status)) {
-    const error = new HttpError(status, url, null, 'Product page returned HTTP ' + status);
-    error.retryAfter = output.stderr.match(/^retry-after:[ \t]*([^\r\n]+)/im)?.[1];
+    // A curl error can include response headers or a partial page.
+    if (error.cmd) throw new Error('Product page download failed (' + error.code + ')');
     throw error;
+  } finally {
+    await rm(directory, {recursive:true,force:true});
   }
+}
+
+export async function readStorefront(hit, query, onResponseBytes) {
+  const html = await fetchStorefrontPage(productUrl(hit.url), onResponseBytes);
   return {snapshot:parseStorefront(html, hit, query), html};
 }

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { productUrl, parseStorefront } from '../src/api/storefront.js';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { fetchStorefrontPage, productUrl, parseStorefront } from '../src/api/storefront.js';
 
 test('source discount belongs to the same SKU and selling price; missing stock remains unknown', () => {
   const hit = { sku: 42, url: '/product.html', categories: [] };
@@ -12,4 +14,29 @@ test('source discount belongs to the same SKU and selling price; missing stock r
   productData.sku = '10';
   assert.throws(() => parseStorefront(render(), hit, 'item'), /SKU/);
   assert.throws(() => productUrl('https://example.org/untrusted.html'));
+});
+
+test('curl reads actual HTTP bodies and retry headers from a Node child process', async t => {
+  const body = Buffer.from([65, 0xff, 10]);
+  const server = createServer((req, res) => {
+    if (req.url === '/wait') {
+      res.writeHead(429, {'Retry-After':'5', 'Set-Cookie':'fixture=private'});
+      res.end('busy');
+    } else {
+      res.end(body);
+    }
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const origin = 'http://127.0.0.1:' + server.address().port;
+  const sizes = [];
+  assert.equal(await fetchStorefrontPage(origin, n => sizes.push(n)), body.toString('utf8'));
+  await assert.rejects(fetchStorefrontPage(origin + '/wait', n => sizes.push(n)), error => {
+    assert.equal(error.status, 429);
+    assert.equal(error.retryAfter, '5');
+    assert.doesNotMatch(error.message, /fixture|private|busy/);
+    return true;
+  });
+  assert.deepEqual(sizes, [3, 4]);
 });
