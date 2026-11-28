@@ -12,9 +12,22 @@ export const options = { cep: { type: 'string' }, lat: { type: 'string' }, lon: 
   expand: { type: 'boolean' }, store: { type: 'string' }, ...Object.fromEntries(['quantity', 'brand', 'generic', 'sku', 'brand-only', 'include-generics'].map(k =>
     [k, { type: 'string', multiple: true }])) };
 
-const issues = { no_reference: 'Apresentação não encontrada', conflicting_release: 'Confirme o tipo de liberação',
-  ambiguous: 'Qual apresentação?', presentation_options: 'Qual apresentação?', preference_unavailable: 'Preferência indisponível',
-  catalog_lookup_failed: 'Falha na consulta ao catálogo' };
+const missingPack = 'Não encontrei a apresentação pedida no catálogo consultado. O estoque dessa embalagem ficou sem confirmação.';
+const catalogNotes = {
+  no_match: missingPack, no_reference: missingPack, unknown_sku: missingPack,
+  requested_brand_not_found: 'Não encontrei a apresentação da marca ou fabricante solicitado no catálogo consultado. O estoque dessa embalagem ficou sem confirmação.',
+  selected_presentation_unverified: 'Não consegui confirmar a apresentação escolhida nesta consulta. O estoque dessa embalagem ficou sem confirmação.',
+  preference_unavailable: 'Nenhuma opção verificada atende à preferência informada.',
+  conflicting_release: 'Confirme o tipo de liberação.',
+  ambiguous: 'Qual apresentação?', presentation_options: 'Qual apresentação?', choose_reference: 'Qual apresentação?',
+  catalog_lookup_failed: 'Falha na consulta ao catálogo. O estoque ficou sem confirmação.',
+  source_failed: 'A consulta à rede falhou.',
+};
+
+export function purchaseCatalogNotice(table) {
+  if (table.status === 'choose_manufacturer' && table.brands?.length) return 'Qual fabricante você prefere? ' + table.brands.join(' ou ') + '?';
+  return catalogNotes[table.status];
+}
 
 export function renderPurchase(result) {
   if (result.status === 'needs_generic_preference') {
@@ -23,7 +36,7 @@ export function renderPurchase(result) {
   }
   const out = [];
   for (const t of result.tables) {
-    out.push(t.label + '. ' + t.query + (t.quantity > 1 ? ' × ' + t.quantity : '') + (t.selectedSku ? ' · SKU ' + t.selectedSku : ''));
+    out.push(t.label + '. ' + (/^\d+$/.test(t.query) ? 'Produto solicitado' : t.query) + (t.quantity > 1 ? ' × ' + t.quantity : ''));
     const requested = new Set(t.requestedBrandSkus);
     const notes = [['unavailable', 'Sem estoque suficiente'], ['unknown', 'Estoque desconhecido'], ['failed', 'Falha na consulta de estoque']];
     function showNotes(brandFirst) {
@@ -42,9 +55,9 @@ export function renderPurchase(result) {
       t.rows.map(p => [p.option ?? '—', p.name, p.type, p.store?.name ?? '—', formatKm(p.store?.distanceKm) || '—',
         formatPrice(p.referencePriceBRL) || 'Não informado', p.store?.quantity ?? 'Desconhecida'])));
     showNotes(false);
-    if (issues[t.status]) out.push(issues[t.status]);
-    if (t.status === 'choose_manufacturer') out.push('Qual fabricante você prefere? ' + t.brands.join(' ou ') + '?');
-    if (t.candidates?.length) out.push(table(['SKU', 'Medicamento', 'Tipo'], t.candidates.map(p => [p.sku, p.name, p.type])));
+    const notice = purchaseCatalogNotice(t);
+    if (notice) out.push(notice);
+    if (t.candidates?.length) out.push(table(['Medicamento', 'Tipo'], t.candidates.map(p => [p.name, p.type])));
     if (t.nameCandidates?.length) out.push(t.nameCandidates.join(', '));
     if (t.missingFields) out.push('Equivalência não verificada. Campos ausentes: ' + t.missingFields.join(', '));
     if (t.needsSelection) out.push('Escolha uma apresentação para o plano.');

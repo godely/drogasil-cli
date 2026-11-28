@@ -253,3 +253,17 @@ test('a regional planner can reuse all eligible branches, coordinates and stock 
   assert.deepEqual(b.map(({store})=>[store.id,store.quantity,store.coordinates.longitude]),[['2',3,0.02],['3',2,0.03]]);
   assert.equal(new Set(calls).size,calls.length);
 });
+
+test('counter output preserves an unresolved pack and accepts a numeric selection silently',()=>{
+  const table={label:'A',query:'Gotas, frasco de 30 mL',status:'no_reference',selectedSku:'8765432',
+    quantity:1,rows:[],unavailable:[],unknown:[],failed:[]};
+  const result={scope:'nearest',searchComplete:true,tables:[table],plans:[]};
+  const text=renderPurchase(result);
+  assert.match(text,/frasco de 30 mL[\s\S]*catálogo consultado[\s\S]*estoque.*sem confirmação/i);
+  assert.doesNotMatch(text,/SKU|8765432|sem estoque/i);
+  const ambiguous={...table,query:'8765432',status:'presentation_options',candidates:[
+    {sku:'8765432',name:'Produto 20 mL',type:'Genérico'},{sku:'11223344',name:'Produto 30 mL',type:'Genérico'}]};
+  const choices=renderPurchase({...result,tables:[ambiguous]});
+  assert.match(choices,/Qual apresentação\?[\s\S]*Produto 20 mL[\s\S]*Produto 30 mL/);
+  assert.doesNotMatch(choices,/8765432|11223344|SKU/);
+});

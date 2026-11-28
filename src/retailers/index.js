@@ -6,6 +6,6 @@ export { requestsDrops, requestsSublingual, normalizeSublingual, presentationSea
 export { run as runSnapshotCommand } from '../commands/snapshot.js';
 export { brandPacks, searchBrandPage, withBrandPacks } from './presentation-search.js';
 export { planFromInventory, tableLabel } from '../api/purchase.js';
-export { renderPurchase, purchaseExitCode } from '../commands/plan.js';
+export { renderPurchase, purchaseExitCode, purchaseCatalogNotice } from '../commands/plan.js';
 export { acceptExpansion } from '../commands/stock-range.js';
 export { infoExitCode, renderInfoResult } from '../commands/info-result.js';
