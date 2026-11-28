@@ -3,6 +3,7 @@ import { medicationType, productInfo } from './product-info.js';
 import { readStorefront } from './storefront.js';
 import { compareProducts, normalizeOrigin } from './compare.js';
 import { documentedSublingual } from './presentation-label.js';
+import { consistentPackCount } from './counted-pack.js';
 
 const norm = text => String(text ?? '').normalize('NFD').replace(/\p{M}/gu,'').toLowerCase()
   .replace(/(\d),(\d)/g,'$1.$2').replace(/\s*\/\s*/g,'/');
@@ -26,6 +27,10 @@ function dimensions(title) {
 }
 export function samePack(anchor, row) {
   if (!validBarcode(anchor.gtin) || anchor.gtin !== row.gtin) return false;
+  for (const product of [anchor, row]) {
+    const quantity = product.facts?.Quantidade ?? product.details?.quantidade ?? product.packageQuantities;
+    if (![product.name, product.itemName].every(title => consistentPackCount(title, quantity))) return false;
+  }
   // A seller can advertise an extra item only in its full title while the SKU
   // and itemName still identify the underlying medicine. The barcode cannot
   // establish equivalence for a promotional bundle.

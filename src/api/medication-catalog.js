@@ -116,10 +116,13 @@ export function verifiedRow(row, intent, { ingredients = [], evidence } = {}) {
   if (intent.kind === 'ingredient' && (ingredients.length ? !inIngredients : !inTitle)) return;
   if (intent.kind === 'brand' && !inTitle && !contains(tokens(row.brand),requested)) return;
   if (intent.kind === 'text' && !contains(title,requested) && !contains(tokens(row.brand),requested)) return;
+  const maker = tokens(row.manufacturer);
+  const makerStart = contains(rest, maker) ? rest.findIndex((_, i) => maker.every((word, j) => rest[i+j] === word)) : -1;
+  const qualifiers = rest.filter((_, i) => makerStart < 0 || i < makerStart || i >= makerStart + maker.length);
   const supportsTerm = word => word === 'sublingual' ? documentedSublingual(row.name,
     row.facts?.['Forma Farmacêutica'] ?? row.facts?.Apresentação,
     row.facts?.['Via de Administração'] ?? row.facts?.['Forma de Administração']) : title.includes(word);
-  if (!rest.filter(w=>!['de','com','em'].includes(w)).every(supportsTerm)) return;
+  if (!qualifiers.filter(w=>!['da','do','de','com','em'].includes(w)).every(supportsTerm)) return;
   if (rest.some(unitDose) && (title.filter(unitDose).length > 1 || /\+/.test(row.name))) {
     if (!rest.filter(unitDose).every(dose=>contains(title,[...requested,dose]))) return;
   }

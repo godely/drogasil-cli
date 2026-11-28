@@ -1,4 +1,6 @@
 export { catalogInfo, catalogSnapshot, catalogType, medicationCard } from './catalog.js';
+export { consistentPackCount } from '../api/counted-pack.js';
+export { catalogQuery } from '../api/presentation-label.js';
 export { retailerComparison, retailerBasket } from './shopping.js';
 export { requestsDrops, requestsSublingual, normalizeSublingual, presentationSearchTerms, documentedSublingual } from '../api/presentation-label.js';
 export { run as runSnapshotCommand } from '../commands/snapshot.js';

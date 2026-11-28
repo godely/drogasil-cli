@@ -105,7 +105,7 @@ test('partner snapshots retain one coherent seller offer in JSON, CSV and XLSX, 
   const cli = fileURLToPath(new URL('../bin/drogasil.js', import.meta.url));
   for (const retailer of ['paguemenos','drogariasaopaulo']) {
     const result = await catalogSnapshot({retailer, queries:['shampoo'],maxItems:1},
-      {search:async () => [other,main]}, {background:false});
+      {search:async () => [other,main].map(row=>({...row, facts:{Quantidade:['1un']}}))}, {background:false});
     assert.equal(result.state, 'succeeded');
     const [row] = JSON.parse(execFileSync(process.execPath, [cli,'snapshot','export',result.runId,'--format','json']));
     assert.deepEqual(row, result.records[0]);
@@ -114,6 +114,7 @@ test('partner snapshots retain one coherent seller offer in JSON, CSV and XLSX, 
     assert.deepEqual([row.categories,row.categoryPath,row.sourceUrl,row.scrapedAt],
       [['Higiene','Cabelos'],'Higiene > Cabelos',base.sourceUrl,base.observedAt]);
     assert.deepEqual(row.offers.map(o=>o.seller), ['Loja B','Loja A']);
+    assert.deepEqual(row.offers.map(o=>o.packageQuantities), [['1un'],['1un']]);
     for (const format of ['csv','xlsx']) {
       const bytes = execFileSync(process.execPath,[cli,'snapshot','export',result.runId,'--format',format]);
       const cells = JSON.parse(execFileSync('python3',['-c', `

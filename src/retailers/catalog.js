@@ -160,7 +160,8 @@ export async function catalogSnapshot({retailer, queries, maxItems}, source, {ba
       for (const row of rows) {
         if (!products.has(row.sku)) products.set(row.sku, {sku:row.sku, name:row.name, offers:[]});
         const {facts, ...offer} = row;
-        products.get(row.sku).offers.push(offer);
+        const packageQuantities = values(facts?.Quantidade);
+        products.get(row.sku).offers.push(packageQuantities.length ? {...offer, packageQuantities} : offer);
       }
       // VTEX paginates products and can emit several sellers per product. Read to an empty page.
       return {hits:[...products.values()], nbPages:rows.length ? page + 2 : page + 1};
