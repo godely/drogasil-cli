@@ -9,6 +9,11 @@ import { partnerSnapshotRecord } from '../retailers/snapshot-record.js';
 
 const storeScript = fileURLToPath(new URL('./db.py', import.meta.url));
 export const DEFAULT_SNAPSHOT_QUERY = 'paracetamol';
+export const snapshotFields = Object.freeze([
+  'sku', 'name', 'brand', 'categories', 'categoryPath', 'productUrl', 'currentPrice',
+  'listPrice', 'discountPercentage', 'currency', 'inStock', 'stockSignal', 'seller',
+  'searchQuery', 'sourceUrl', 'scrapedAt', 'retailerId', 'sellerId', 'offers', 'priceScope',
+]);
 async function store(input) {
   const child = spawn('python3', [storeScript], { stdio: ['pipe', 'pipe', 'pipe'] });
   const output = [], errors = [];
@@ -24,16 +29,26 @@ async function store(input) {
   return output.length ? JSON.parse(Buffer.concat(output)) : undefined;
 }
 
-export async function readSnapshot(id, { offset = 0, limit = 20 } = {}) {
+export async function readSnapshot(id, { offset = 0, limit = 20, fields } = {}) {
   if (typeof id !== 'string' || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
     throw new TypeError('Invalid run ID, offset or page size');
   }
+  if (fields !== undefined && (!Array.isArray(fields) || !fields.length)) {
+    throw new TypeError('Expected a nonempty list of snapshot field names');
+  }
+  const selected = fields && [...new Set(fields)];
+  if (selected?.some(field => !snapshotFields.includes(field))) throw new TypeError('Unknown snapshot field');
   const page = await store({ op: 'read', id, offset, limit });
   page.records = page.records.map(record => {
     if (record.retailerId && Array.isArray(record.offers) && !Object.hasOwn(record, 'scrapedAt')) {
-      return partnerSnapshotRecord(record);
+      record = partnerSnapshotRecord(record);
     }
-    return record;
+    if (!selected) return record;
+    const projected = {};
+    for (const field of selected) {
+      if (Object.hasOwn(record, field)) projected[field] = record[field];
+    }
+    return projected;
   });
   return page;
 }

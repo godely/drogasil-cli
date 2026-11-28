@@ -251,6 +251,7 @@
       "queries"
     ],
     "read_catalog_snapshot": [
+      "fields",
       "limit",
       "offset",
       "runId"

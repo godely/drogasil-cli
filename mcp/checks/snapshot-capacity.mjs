@@ -88,6 +88,20 @@ test('1,000 distinct products from ten overlapping searches survive MCP paginati
       assert.equal(page.nextOffset, end < run.count ? end : null);
       offset = end;
     }
+    const subset = await client.callTool({name: 'read_catalog_snapshot', arguments: {
+      runId: run.runId, offset: 998, limit: 2, fields: ['inStock', 'discountPercentage', 'name', 'sellerId'],
+    }});
+    assert.ok(!subset.isError, subset.content[0]?.text);
+    const projected = subset.structuredContent;
+    assert.deepEqual(JSON.parse(subset.content[0].text), projected);
+    assert.equal(projected.count, 1000);
+    assert.equal(projected.nextOffset, null);
+    for (const [i, record] of projected.records.entries()) {
+      assert.deepEqual(Object.keys(record), ['inStock', 'discountPercentage', 'name']);
+      const {inStock, discountPercentage, name} = expected[998 + i];
+      assert.deepEqual(record, {inStock, discountPercentage, name});
+    }
+    assert.equal(projected.records.length, 2);
   } finally {
     await client.close();
   }

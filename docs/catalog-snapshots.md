@@ -12,6 +12,8 @@ drogasil snapshot export "$RUN_ID" --format json > catalog.json
 
 The default SQLite database is under the server user's local data directory. Override with DROGASIL_SNAPSHOT_DB. Use the same database for collection, polling and export. Snapshot tools are intended for a personal authenticated connection. Access to a run ID permits reading that run.
 
+For a narrow result, pass `fields: ["name", "currentPrice"]` to `read_catalog_snapshot`, or use `readSnapshot(runId, { fields: ["name", "currentPrice"] })` in JavaScript. Only the product records are projected. The count, state and continuation offset describe the same saved run. Each record retains the requested field order, explicit nulls and zeros. Fields absent from the source record remain absent. Omitting `fields` returns the full records.
+
 | Actor capability | Implementation and limits |
 |---|---|
 | Ordered search and attribution | Omit the queries to collect up to 20 products for `paracetamol`. An explicit list must contain 1–10 nonblank queries of up to 150 characters each. First query wins on duplicate SKUs. Maximum 1,000 items and at most 30 pages per query. |

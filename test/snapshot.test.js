@@ -145,6 +145,14 @@ print(json.dumps([record['seller'],record['currentPrice'],record['stockSignal'],
   assert.equal(old.records[1].currentPrice, null);
   assert.equal(old.records[1].inStock, null);
   assert.equal(old.records[1].offers.length, 2);
+  const projection = await readSnapshot(old.runId, {fields:['currentPrice', 'seller', 'inStock']});
+  assert.deepEqual(projection.records, [
+    {currentPrice:5, seller:'Loja B', inStock:true},
+    {currentPrice:null, seller:null, inStock:null},
+  ]);
+  for (const fields of [[], ['priceTypo'], ['offers.price'], 'name', null]) {
+    await assert.rejects(readSnapshot(old.runId, {fields}), TypeError);
+  }
 });
 
 test('transient failures retry the same operation, retain first-query attribution and count observed bytes', async t => {
