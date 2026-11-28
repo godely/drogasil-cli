@@ -1,3 +1,4 @@
+import { confirmCliNames } from './confirm-names.js';
 import { getMedicationInfo } from '../api/medication-info.js';
 import { printJson } from '../format.js';
 
@@ -8,7 +9,12 @@ const answer = value => value == null ? unknown : value ? 'sim' : 'não';
 
 export async function run(queries, values) {
   if (!queries.length) { process.stderr.write(usage + '\n'); return 1; }
-  const info = await getMedicationInfo(queries, { scope: values.brazil ? 'brazil' : 'catalog' });
+  const {names, pending} = await confirmCliNames(queries, {json:values.json});
+  if (pending) {
+    if (values.json) printJson({...pending, results:[]});
+    return 3;
+  }
+  const info = await getMedicationInfo(names, { scope: values.brazil ? 'brazil' : 'catalog' });
   if (values.json) printJson(info);
   else for (const r of info.results) {
     const lines = [r.query];
@@ -21,9 +27,9 @@ export async function run(queries, values) {
     }
     if (r.products.length) lines.push('Catálogo Drogasil');
     for (const p of r.products) {
-      lines.push([p.name, p.type, 'SKU ' + p.sku].join(' · '));
+      lines.push([p.name, p.type].join(' · '));
       lines.push('Princípios ativos: ' + (p.ingredients.map(a => [a.name, a.strength ?? unknown].join(' ')).join(' + ') || unknown));
-      lines.push('Forma: ' + (p.form ?? unknown) + ' · Via: ' + (p.route ?? unknown) + ' · Liberação: ' +
+      lines.push('Forma: ' + (p.form ?? unknown) + ' · Via: ' + (p.routeStatus === 'conflicting_evidence' ? 'não confirmada (a ficha traz informações divergentes)' : p.route ?? unknown) + ' · Liberação: ' +
         (p.release ?? unknown) + ' · Embalagem: ' + (p.pack ?? unknown));
       const rx = p.prescription;
       lines.push('Precisa de receita? ' + answer(rx.required) + ' · A farmácia retém? ' + answer(rx.retained) +

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { fold, resolveName, medicationIndex, distance } from './medications.js';
+import { fold, resolveName, medicationIndex, distance, resolveMedication } from './medications.js';
 
 const dcb = new Set(readFileSync(new URL('../data/dcb-names.txt', import.meta.url), 'utf8').trimEnd().split('\n'));
 export const isDcbName = term => dcb.has(fold(term));
@@ -7,6 +7,30 @@ const clean = value => fold(value ?? '').replace(/(\d),(?=\d)/g, '$1.').replace(
 const tokens = value => clean(value).match(/\d+(?:\.\d+)?\s*(?:mcg|mg|ml|ui|g|%)(?:\s*\/\s*(?:ml|g|h|dose))?|[a-z]+|\d+(?:\.\d+)?/g)?.map(t=>t.replace(/\s/g,'')) ?? [];
 const contains = (list, part) => part.length > 0 && list.some((_,i) => part.every((word,j)=>list[i+j]===word));
 const unitDose = word => /^\d+(?:\.\d+)?(?:mg|mcg|g|ui|%)(?:\/|$)/.test(word);
+
+// Suggestions often repeat a declined name with a different strength or form.
+// Compare complete words so a rejection of loratadina still permits desloratadina.
+export function alternativeNames(terms, query, declined, limit = 7) {
+  const rejected = declined.map(term => {
+    const words = tokens(term);
+    const presentation = words.findIndex(word => /^\d/.test(word) ||
+      /^(?:gotas?|comprimidos?|capsulas?|solucao|suspensao|xarope|frascos?|ampolas?|pomada|creme|sublingual|injetavel|xr|sr)$/.test(word));
+    const name = presentation > 0 ? words.slice(0, presentation) : words;
+    if (presentation > 0 && ['em','de','com'].includes(name.at(-1))) name.pop();
+    return name;
+  });
+  const seen = new Set([tokens(query).join(' ')]);
+  const alternatives = [];
+  for (const term of terms) {
+    const words = tokens(term);
+    const key = words.join(' ');
+    if (!key || seen.has(key) || rejected.some(name => contains(words, name))) continue;
+    seen.add(key);
+    alternatives.push(term);
+    if (alternatives.length === limit) break;
+  }
+  return alternatives;
+}
 
 export async function medicationIntent(input, getIndex = medicationIndex) {
   const query = clean(input);
@@ -93,4 +117,37 @@ export function medicationCatalog(source, { searchVerified, intentFor = medicati
     },
   };
   return adapter;
+}
+
+// Preserve full catalog queries for merchandise. Only treat trailing words
+// after a possible misspelling as a presentation when they look like one.
+const presentation = /^(?:\d|(?:em|com|de|xr|cr|sr|sl|gotas?|frasco|solucao|comprimidos?|capsulas?|spray|gel|pomada|suspensao|sublingual|liberacao)\b)/;
+const catalogTerms = new Set(['gel','spray','diet','dor','protetor','creme','kit','cha','oleo','solucao','pomada','gotas']);
+export async function nameChoices(query, {intentFor = medicationIntent, resolve = resolveMedication} = {}) {
+  const intent = await intentFor(query);
+  if (catalogTerms.has(intent.name) || !intent.suggestions.length || (intent.suffix && !presentation.test(intent.suffix))) return [];
+  const candidates = intent.suggestions.slice(0, 7);
+  if (candidates.length === 1) return candidates;
+  const suffix = intent.suffix ? ' ' + intent.suffix : '';
+  // A brand and an ingredient can share the exact letters the shopper typed.
+  // Keep live prefix matches ahead of approximate spellings and DCB-only entries.
+  const ranked = await Promise.all(candidates.map(async term => {
+    const name = suffix ? term.slice(0, -suffix.length) : term;
+    const prefix = /^[a-z]+$/.test(name) && name.startsWith(intent.name);
+    const dcbName = isDcbName(name);
+    if (!prefix && !dcbName) return {};
+    const resolved = await resolve(name).catch(() => null);
+    const exact = resolved && !resolved.interpretation && !resolved.suffix;
+    const ingredient = exact && resolved.kind === 'ingredient';
+    const livePrefix = prefix && exact && (ingredient || resolved.kind === 'brand');
+    return {livePrefix, ingredient: dcbName && (ingredient || !resolved)};
+  }));
+  const prefixes = candidates.filter((_, i) => ranked[i].livePrefix);
+  if (prefixes.length) return prefixes;
+  const ingredients = candidates.filter((_, i) => ranked[i].ingredient);
+  return ingredients.length ? ingredients : [candidates[0]];
+}
+
+export function namePrompt(choices) {
+  return 'Você quis dizer ' + new Intl.ListFormat('pt-BR', {type:'disjunction'}).format(choices) + '?';
 }

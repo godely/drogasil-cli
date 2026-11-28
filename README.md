@@ -41,6 +41,8 @@ drogasil stock 110166 --lat -23.5500 --lon -46.630 --all --json
 
 With a location, the human-readable comparison shows each option at its nearest stocked branch, cheapest first. Pass `--store nearest` to check the physically closest participating branch, including zeros. The existing `compare --json` output retains the full branch arrays.
 
+Nos comandos `search`, `info`, `compare` e `plan`, uma grafia como “predniso” abre a pergunta “Você quis dizer prednisona ou prednisolona?”. No terminal, responda com o nome ou o número da opção. Com uma única sugestão, responda “sim” ou “não”. Em scripts e com `--json`, a pergunta vai para stderr e o processo encerra com código 3. Repita o comando com o nome escolhido.
+
 ## Exit codes
 
 | Code | Meaning |

@@ -96,6 +96,30 @@ test('choices bind to SKUs before refresh, preserve restrictions and identify a 
   assert.equal(brand.tables[0].unavailable[0].sku, '11');
 });
 
+test('keeps the chosen generic manufacturer even when a product uses the ingredient as its brand', async t => {
+  const { products, calls } = fixture(t);
+  const [original, generic] = products;
+  generic.name += ' Prati-Donaduzzi';
+  generic.details.fabricante = 'Prati Donaduzzi';
+  const ask = brand => planPurchase([{query:'Alpha 1mg', brand, includeGenerics:false}], {origin});
+  for (const brand of ['Prati', 'Prati-Donaduzzi']) {
+    const {tables:[table]} = await ask(brand);
+    assert.deepEqual(table.rows.map(p=>p.sku), ['12']);
+  }
+  calls.length = 0;
+  original.details.fabricante = 'Prati Exemplo';
+  original.name += ' Genérico Prati Exemplo';
+  const ambiguous = await ask('Prati');
+  assert.equal(ambiguous.tables[0].status,'choose_manufacturer');
+  assert.deepEqual(ambiguous.tables[0].brands.sort(),['Prati Donaduzzi','Prati Exemplo']);
+  assert.match(renderPurchase(ambiguous),/Qual fabricante/);
+  assert.deepEqual(calls,[]);
+  generic.name = 'Example Genérico 1mg 10 comprimidos';
+  original.details.fabricante = 'Outro';
+  assert.equal((await ask('Prati')).tables[0].status, 'preference_unavailable');
+  assert.deepEqual(calls,[]);
+});
+
 test('repeated SKU shares the stock snapshot and cannot be over-allocated', async t => {
   const { calls } = fixture(t);
   const result = await planPurchase([{ query: '12', quantity: 2 }, '12'], { origin });
@@ -183,4 +207,38 @@ test('explicit brand can include a qualifier from the matched commercial present
   products[0].name = 'Alpha GTS 1mg 10 comprimidos';
   const result = await planPurchase([{ query: 'Alpha GTS', brand: 'Alpha GTS', includeGenerics: false }], { origin });
   assert.deepEqual(result.tables[0].rows.map(p => p.sku), ['11']);
+});
+
+test('a chosen ingredient pack is one shopping line across manufacturers', async t => {
+  const { products, inventory, calls } = fixture(t);
+  for (const p of products.slice(0, 2)) p.filters = {};
+  products[1].details.quantidade = '10 comprimidos revestidos';
+  inventory[12] = [0, 0, 0];
+  let result = await planPurchase(['Example 1mg 10 comprimidos'], { origin });
+  let [table] = result.tables;
+  assert.equal(table.matchBasis, 'direct_requested_pack');
+  assert.deepEqual(calls.sort(), ['11', '12']);
+  assert.deepEqual(table.rows.map(row => row.sku), ['11']);
+  assert.equal(table.lowestPricedStockedOption, table.rows[0].option);
+  assert.equal(result.coverage.canExpand, false);
+  inventory[11] = [0, 0, 0];
+  result = await planPurchase(['Example 1mg 10 comprimidos'], { origin });
+  assert.equal(result.coverage.canExpand, true);
+  assert.equal(result.tables[0].lowestPricedStockedOption, undefined);
+  inventory[11] = [null, 0, 0];
+  result = await planPurchase(['Example 1mg 10 comprimidos'], { origin });
+  assert.equal(result.coverage.canExpand, false);
+  assert.equal(result.tables[0].unknown.length, 1);
+  inventory[12] = [1, 0, 0];
+  const multi = await planPurchase(['Example 1mg 10 comprimidos', 'Beta 1mg'], { origin });
+  assert.equal(multi.tables[0].needsSelection, true);
+  assert.deepEqual(multi.plans[0].unfilled, ['A']);
+});
+
+test('a regional planner can reuse all eligible branches, coordinates and stock checks',async t=>{
+  const {calls}=fixture(t);
+  const r=await planPurchase(['Alpha 1mg','Beta 1mg'],{origin,includeBranchChoices:true});
+  const b=r.branchChoices[1];
+  assert.deepEqual(b.map(({store})=>[store.id,store.quantity,store.coordinates.longitude]),[['2',3,0.02],['3',2,0.03]]);
+  assert.equal(new Set(calls).size,calls.length);
 });

@@ -1,3 +1,7 @@
+import { fold, resolveMedication } from '../api/medications.js';
+import { documentedDrops, matchesLabeledDropRequest, requestsDrops } from '../api/presentation-label.js';
+import { matchesDropListing } from './drop-listing.js';
+import { countedOffers } from './counted-offers.js';
 import { compareProducts, medicationType, samePack, searchProducts } from '../api/index.js';
 import { validBarcode as validGtin } from '../api/retail-prices.js';
 import { catalogType } from './catalog.js';
@@ -8,6 +12,8 @@ function listed(row, retailerId) {
 }
 
 const references = {
+  resolve: resolveMedication,
+  drops:(query,includeGenerics)=>compareProducts(query,{resolveNames:true,includeUnpriced:true,includeGenerics:!!includeGenerics}),
   async byGtin(gtin) {
     const {hits} = await searchProducts(gtin,{hitsPerPage:100});
     return hits.filter(hit=>hit.isActive !== false && String(hit.eanCode)===gtin);
@@ -15,16 +21,61 @@ const references = {
   compare: sku => compareProducts(sku,{resolveNames:true,includeUnpriced:true}),
 };
 
+async function findDropOffers(retailer,query,source,reference,includeGenerics) {
+  const selection = await reference.drops(query,includeGenerics);
+  const allowed = new Set((selection.requestedBrandSkus ?? selection.referenceSkus ?? []).map(String));
+  const eligible = selection.status === 'ambiguous' ? selection.candidates : selection.products;
+  if (!eligible?.length) return null;
+  const offers = new Map();
+  for (const hit of eligible) {
+    if (/\bgts\b/iu.test(query) && !documentedDrops(hit)) continue;
+    const original = allowed.has(String(hit.sku)) || selection.status === 'ambiguous';
+    if (!original && (!includeGenerics || medicationType(hit)!=='Genérico')) continue;
+    const code = String(hit.eanCode);
+    if (!validGtin(code)) continue;
+    for (const row of await source.byGtin(code)) {
+      if (!matchesDropListing(hit,row)) continue;
+      const key = JSON.stringify([row.sku,row.sellerId]);
+      offers.set(key,{...listed(row,retailer),role:original?'requested':'generic',
+        ...(original && {requestedTradeName:hit.brand, requestedReferenceTitle:hit.name}),matchBasis:'verified_drop_presentation_and_barcode'});
+    }
+  }
+  const products = [...offers.values()];
+  if (!products.length) return null;
+  if (selection.status === 'ambiguous' && new Set(products.map(p=>p.gtin)).size > 1)
+    return {retailerId:retailer,status:'choose_reference',candidates:products};
+  return {retailerId:retailer,status:'matches',scope:'verified_drop_presentation',products};
+}
+
 // The reference catalog establishes presentation equivalence. The selected retailer
 // must independently list every suggested generic with the same barcode and pack.
 export async function retailerComparison({retailer, query, includeGenerics}, source, reference = references) {
   const exact = /^\d+$/.test(query);
-  const discovery = exact ? await source.product(query) : await source.search(query,1,2);
+  const wantsDrops = requestsDrops(query);
+  let referenceFailure;
+  if (wantsDrops && reference.drops && source.byGtin) {
+    try {
+      const matched = await findDropOffers(retailer,query,source,reference,includeGenerics);
+      if (matched) return matched;
+    } catch (error) { referenceFailure=error; }
+  }
+  if (!exact && /\d+\s*(?:comprimidos?|c[áa]psulas?)\b/iu.test(query) && reference.resolve) {
+    const identity = await reference.resolve(query).catch(() => null);
+    if (identity) {
+      const direct = await countedOffers(retailer, query, source, identity, reference);
+      if (direct) return direct;
+    }
+  }
+  let discovery = exact ? await source.product(query) : await source.search(query,1,wantsDrops ? 50 : 2);
+  if (wantsDrops) {
+    discovery = discovery.filter(p=>matchesLabeledDropRequest(p,query));
+    if (!discovery.length && referenceFailure) throw referenceFailure;
+  }
   const distinct = [...new Set(discovery.map(row=>row.sku))];
   if (!distinct.length) return {retailerId:retailer,status:exact?'unknown_sku':'no_match',products:[]};
   if (distinct.length > 1) return {retailerId:retailer,status:'choose_reference',candidates:discovery.map(r=>listed(r,retailer)),
     guidance:'Use pharmacy_search for more presentations, then pass the chosen local SKU.'};
-  const originals = exact ? discovery : await source.product(distinct[0]);
+  const originals = exact || wantsDrops ? discovery : await source.product(distinct[0]);
   const products = originals.map(row=>({...listed(row,retailer),role:'requested'}));
   const result = {retailerId:retailer,status:'matches',products};
   if (!originals.length) return {...result,status:'unknown_sku'};

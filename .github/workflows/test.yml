@@ -30,6 +30,28 @@ jobs:
           node-version: 'lts/*'
       - run: npm ci --prefix mcp
       - run: npm test --prefix mcp
+  partner-cli-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: godely/farmacias-br
+          ref: codex/retailer-parity
+          path: partner-acceptance
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: partner-acceptance
+      - name: Test candidate Drogasil commands against the released partner CLIs
+        env:
+          FARMACIAS_REFERENCE_ROOT: ${{ github.workspace }}
+        working-directory: partner-acceptance
+        run: node --test test/cli-contract.test.js
   plugin:
     runs-on: ubuntu-latest
     steps:

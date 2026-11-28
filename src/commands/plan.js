@@ -1,3 +1,4 @@
+import { confirmCliNames } from './confirm-names.js';
 import { createInterface } from 'node:readline/promises';
 import { acceptExpansion, describeRange } from './stock-range.js';
 import { planPurchase, tableLabel } from '../api/purchase.js';
@@ -42,6 +43,7 @@ export function renderPurchase(result) {
         formatPrice(p.referencePriceBRL) || 'Não informado', p.store?.quantity ?? 'Desconhecida'])));
     showNotes(false);
     if (issues[t.status]) out.push(issues[t.status]);
+    if (t.status === 'choose_manufacturer') out.push('Qual fabricante você prefere? ' + t.brands.join(' ou ') + '?');
     if (t.candidates?.length) out.push(table(['SKU', 'Medicamento', 'Tipo'], t.candidates.map(p => [p.sku, p.name, p.type])));
     if (t.nameCandidates?.length) out.push(t.nameCandidates.join(', '));
     if (t.missingFields) out.push('Equivalência não verificada. Campos ausentes: ' + t.missingFields.join(', '));
@@ -111,6 +113,12 @@ export async function run(positionals, values) {
     let items = itemsFromArgs(positionals, values);
     if (values.expand && values.store) throw new TypeError('--expand requires a search across stores');
     const opts = { origin, store: values.store, expandSearch: values.expand, confirmBrands: true };
+    const {names, pending} = await confirmCliNames(items.map(item => item.selectedSku ?? item.query), {json:values.json});
+    if (pending) {
+      if (values.json) printJson({...pending, items, tables:[], plans:[]});
+      return 3;
+    }
+    items = items.map((item, i) => item.selectedSku ? item : {...item, query:names[i]});
     let result = await planPurchase(items, opts);
     if (result.status === 'needs_generic_preference' && !values.json && process.stdin.isTTY && process.stdout.isTTY) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
