@@ -54,9 +54,9 @@ jobs:
             dsp: main
             flags: ''
           - release: tested
-            pm: f92c40ab2902d7506e812967a67adb10850ca93f
-            dsp: 73622a310a235102b9b7913fc8dbab71c2d74918
-            flags: --candidate
+            pm: fc2f7de1a61bf2f6dcef877ff8c90128ebcd8bd7
+            dsp: 6cc370702e0bd25fcca6d2cbf46fa9c5e9934bb0
+            flags: --strict
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -79,6 +79,7 @@ jobs:
         run: |
           for partner in paguemenos drogariasaopaulo; do
             npm ci --prefix "partners/$partner"
+            npm test --prefix "partners/$partner"
             node scripts/parity/cli.mjs "$partner" "partners/$partner/cli.js" ${{ matrix.flags }} | tee -a "$GITHUB_STEP_SUMMARY"
           done
         shell: bash

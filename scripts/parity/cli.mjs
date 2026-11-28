@@ -39,7 +39,19 @@ for (const [label, args, expected, fixture] of [
 ]) {
   if (run(args, fixture).status !== expected) gaps.push('exit: ' + label);
 }
-if (process.argv.includes('--candidate') || process.argv.includes('--strict')) {
+if (process.argv.includes('--strict')) {
+  for (const args of [
+    ['compare','1','--store','nearest'], ['compare','1','--expand'],
+    ['plan','1','--lat','1','--lon','1','--store','nearest','--expand'],
+    ['compare','1','--lat','1','--lon','1','--store','arbitrary'],
+    ['stock','1','--lat','1','--lon','1','--max-branches','3'],
+    ['stock','1','--cep','01001000','--all','--min-qty','1'],
+    ['stock','1','--cep','01001000','--max-branches','31'],
+  ]) {
+    for (const suffix of [[],['--json']]) {
+      if (run([...args,...suffix]).status!==1) gaps.push('invalid options accepted: '+[...args,...suffix].join(' '));
+    }
+  }
   for (const limit of ['1','51','100','1000']) {
     // The second page avoids first-page spelling suggestions. The source is empty.
     const args=['search','1234567','--page','2','--limit',limit];
@@ -58,8 +70,7 @@ if (batch.status !== 3 || JSON.stringify(JSON.parse(batch.stdout || 'null')) !==
 gaps.sort();
 if (process.argv.includes('--print')) console.log(JSON.stringify(gaps, null, 2));
 else {
-  const released = process.argv.includes('--candidate');
-  const known = JSON.parse(await readFile(new URL(released ? './candidate-gaps.json' : './gaps.json', import.meta.url)));
+  const known = JSON.parse(await readFile(new URL('./gaps.json', import.meta.url)));
   console.log(name + ': ' + gaps.length + ' open checks\n' + gaps.join('\n'));
   const allowed=process.argv.includes('--strict') ? [] : known[name];
   const regressions=gaps.filter(gap=>!allowed.includes(gap) && !allowed.includes(gap.split(' --')[0]));
