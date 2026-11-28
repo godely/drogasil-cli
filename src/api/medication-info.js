@@ -2,14 +2,15 @@ import { getProductsBySku, searchProducts } from './algolia.js';
 import { resolveMedication, fold } from './medications.js';
 import { medicationType } from './product-info.js';
 import { brazilianPresentations, prescriptionInfo } from './regulatory-info.js';
+import { catalogQuery, documentedDrops, dropSearchTerms, labelDescription, matchesRequest } from './presentation-label.js';
 
-const attributes = ['sku', 'name', 'url', 'isActive', 'brand', 'details', 'filters.Forma farmacêutica',
+const attributes = ['eanCode', 'sku', 'name', 'url', 'isActive', 'brand', 'details', 'filters.Forma farmacêutica',
   'filters.Via de administração', 'filters.Marca', 'filters.Tipo de medicamento', 'filters.Medicamentos genéricos',
   'description', 'productDescription'];
 const clean = text => String(text ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ').replace(/\s+/g, ' ').trim();
 const concentrations = text => [...text.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(mcg|µg|mg|g|ui)\s*\/\s*(\d+(?:[.,]\d+)?\s*)?(ml|l|g|dose|gota)\b/gi)]
   .map(m => ({ value: Number(m[1].replace(',', '.')), unit: fold(m[2]), text: m[1].replace('.', ',') + ' ' + m[2].toLowerCase() + '/' + (m[3]?.trim() ?? '') + (m[4].toLowerCase() === 'ml' ? 'mL' : m[4].toLowerCase()) }));
-function facts(product) {
+export function medicationFacts(product) {
   const details = product.details ?? {}, filters = product.filters ?? {};
   const title = clean(product.name);
   const description = clean(product.description);
@@ -19,7 +20,12 @@ function facts(product) {
   const sublingual = /\bsub[- ]?lingua[li]/.test(label);
   const form = sublingual ? 'Comprimido sublingual' : filters['Forma farmacêutica'] ??
     [title, pack].filter(Boolean).join(' ').match(/comprimidos?(?: revestidos?)?|c[áa]psulas?|solução oral|gotas|suspensão oral|xarope|pomada|creme/iu)?.[0] ?? null;
-  const route = sublingual ? 'Sublingual' : filters['Via de administração'] ?? (label.includes('solucao oral') ? 'Oral' : null);
+  const drops = documentedDrops(product);
+  const oralLabel = drops && /\b(?:gotas (?:de uso|por via) oral|administrar por via oral)\b/.test(labelDescription(product));
+  const routeField = filters['Via de administração'];
+  const routeConflict = Boolean(oralLabel && routeField && !/\boral\b/.test(fold(routeField)));
+  const dropForm = form && !/gotas/i.test(form) ? form + ' em gotas' : form ?? 'Gotas';
+  const route = routeConflict ? null : oralLabel ? 'Oral' : sublingual ? 'Sublingual' : filters['Via de administração'] ?? (label.includes('solucao oral') ? 'Oral' : null);
   const release = label.match(/liberacao (prolongada|retardada|lenta|modificada|imediata|controlada)/)?.[1] ??
     (/\bxr\b/.test(label) ? 'prolongada' : null);
   const actives = details.activeIngredients ?? [];
@@ -47,28 +53,40 @@ function facts(product) {
   const source = typeof product.url === 'string' && /^[\w%-][\w%./-]*\.html$/i.test(product.url) ?
     'https://www.drogasil.com.br/' + product.url : null;
   return { sku: String(product.sku), name: title, type: medicationType(product), registration: details.ms ?? null,
-    ingredients, form, route, release, pack, source,
+    ingredients, form: drops ? dropForm : form,
+    route, ...(routeConflict && {routeStatus:'conflicting_evidence'}), release, pack, source,
     prescription: prescriptionInfo(details.descricao_tarja, description || body, ingredients.map(a => a.name), route) };
 }
 
-async function lookup(query, scope) {
+export async function infoRecords(query) {
   const name = await resolveMedication(query);
-  if (name.status === 'ambiguous') return { query, ...name, products: [] };
+  if (name.status === 'ambiguous') return { name, hits: [] };
   let hits;
   if (name.kind === 'sku') hits = (await getProductsBySku([query], attributes)).filter(Boolean);
   else {
     const opts = { filters: name.filters ?? 'categories.id=532', hitsPerPage: 100, attributes };
-    const first = await searchProducts(name.suffix, opts);
+    const drops = /\bgotas\b/i.test(query);
+    const requested = catalogQuery(name.suffix);
+    const term = drops ? (name.filters ? '' : dropSearchTerms(requested)) : name.suffix;
+    const first = await searchProducts(term, opts);
     hits = first.hits.slice();
     for (let page = 1; page < first.nbPages; page++) {
-      hits.push(...(await searchProducts(name.suffix, { ...opts, page })).hits);
+      hits.push(...(await searchProducts(term, { ...opts, page })).hits);
     }
-    if (name.kind === 'text') {
+    if (drops) {
+      hits = hits.filter(product => {
+        if (!documentedDrops(product)) return false;
+        const fact = medicationFacts(product);
+        const evidence = {...product, filters:{...product.filters, 'Via de administração':fact.route},
+          details:{...product.details, dosageList:fact.ingredients.map(ingredient => ingredient.strength)}};
+        return !requested || matchesRequest(evidence, requested);
+      });
+    } else if (name.kind === 'text') {
       const terms = fold(query).split(/\s+/);
       hits = hits.filter(p => terms.every(term => fold(p.name).split(/[^\p{L}\d.,/]+/u).includes(term)));
     }
   }
-  if (name.suffix && name.filters) {
+  if (name.suffix && name.filters && !/\bgotas\b/i.test(query)) {
     const doses = text => [...fold(text).matchAll(/\b(\d+(?:[.,]\d+)?)\s*(mg|mcg|g|ml|ui)\b/g)]
       .map(m => Number(m[1].replace(',', '.')) + m[2]);
     const requested = doses(name.suffix);
@@ -77,7 +95,13 @@ async function lookup(query, scope) {
       return requested.every(dose => listed.includes(dose));
     });
   }
-  const products = [...new Map(hits.filter(p => p.isActive !== false).map(p => [String(p.sku), facts(p)])).values()];
+  return { name, hits: hits.filter(product => product.isActive !== false) };
+}
+
+async function lookup(query, scope) {
+  const {name, hits} = await infoRecords(query);
+  if (name.status === 'ambiguous') return { query, ...name, products: [] };
+  const products = [...new Map(hits.map(p => [String(p.sku), medicationFacts(p)])).values()];
   const brazil = scope === 'brazil' ? await brazilianPresentations(query, name, hits[0]) : undefined;
   return { query, status: products.length || brazil?.presentations.length ? 'matches' : 'no_reference',
     interpretation: name.interpretation, products, ...(brazil ? { brazil } : {}) };
