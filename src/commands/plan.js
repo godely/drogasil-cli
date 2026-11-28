@@ -25,6 +25,10 @@ const catalogNotes = {
 };
 
 export function purchaseCatalogNotice(table) {
+  if (table.status === 'no_match' && table.requestedBrand?.status === 'no_exact_catalog_match') {
+    return 'A busca não encontrou a caixa de ' + table.requestedBrand.name +
+      ' no catálogo da rede. Também não consegui confirmar um genérico com a mesma apresentação. O estoque ficou sem confirmação.';
+  }
   if (['choose_reference', 'ambiguous'].includes(table.status) && table.referenceCatalog === 'drogasil' && table.presentationChoices?.length) {
     return ['Qual destas apresentações você procura?', ...table.presentationChoices.map(name => '• ' + name),
       'As apresentações vêm do catálogo de referência da Drogasil. A disponibilidade na farmácia escolhida depende de qual você procura.'].join('\n');

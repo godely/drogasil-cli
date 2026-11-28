@@ -21,8 +21,10 @@ test('a missing exact brand pack can have verified local generics after consent'
   assert.equal(result.products[0].equivalenceEvidence.gtin,generic.eanCode);
   const unavailable=await retailerComparison(options,source([]),{compare:async()=>match});
   assert.equal(unavailable.status,'no_match');
+  assert.match(purchaseCatalogNotice(unavailable),/caixa de Exemplo.*genérico com a mesma apresentação/);
   const partial=await retailerComparison(options,{search:async()=>[],byGtin:async()=>{throw Error('offline');}},{compare:async()=>match});
   assert.equal(partial.status,'partial');
+  assert.doesNotMatch(purchaseCatalogNotice(partial) ?? '',/não encontrei|não encontrou/i);
 });
 
 test('brand-only, ambiguous and unrelated names cannot silently substitute generics',async()=>{
