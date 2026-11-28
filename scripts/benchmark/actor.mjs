@@ -1,5 +1,6 @@
 import {isDeepStrictEqual} from 'node:util';
 import {readFile} from 'node:fs/promises';
+import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
 import {collectSnapshot,readSnapshot} from '../../src/snapshots/index.js';
 
@@ -57,12 +58,24 @@ async function get(url,label,optional=false) {
 }
 
 // GET only. Run identifiers can grant read access and stay out of the exported report.
-export async function actorRun(id,read=get) {
+export async function actorRun(id,read=get,wait=delay) {
   if (!/^[a-zA-Z0-9]+$/.test(id)) throw Error('Expected an Apify run ID');
-  const [{data:actor},{data:run}] = await Promise.all([read('acts/'+actorName,'Actor metadata'),
-    read('actor-runs/'+id,'Run metadata')]);
-  if (!actor.id || run.actId !== actor.id) throw Error('The run belongs to a different Actor');
-  if (!['SUCCEEDED','FAILED','TIMED-OUT','ABORTED'].includes(run.status)) throw Error('Run is still active; read the same run after it finishes');
+  const readRun=async ()=>(await read('actor-runs/'+id,'Run metadata')).data;
+  const [{data:actor},first] = await Promise.all([read('acts/'+actorName,'Actor metadata'),readRun()]);
+  function verify(run) {
+    if (!actor.id || run.actId !== actor.id) throw Error('The run belongs to a different Actor');
+    if (!['SUCCEEDED','FAILED','TIMED-OUT','ABORTED'].includes(run.status)) throw Error('Run is still active; read the same run after it finishes');
+  }
+  verify(first);
+  let run=first;
+  // Apify can still be accounting for events when the first terminal status arrives.
+  const ageMs=Date.now()-Date.parse(first.finishedAt);
+  if (Number.isFinite(ageMs) && ageMs<10000) {
+    await wait(10000-Math.max(ageMs,0));
+    run=await readRun();
+    verify(run);
+  }
+  const billingObservedAt=new Date().toISOString();
   const bucket='key-value-stores/'+run.defaultKeyValueStoreId+'/records/';
   const [input,work,{data:dataset}] = await Promise.all([read(bucket+'INPUT','INPUT',true),read(bucket+'RUN_STATS','RUN_STATS',true),
     read('datasets/'+run.defaultDatasetId,'Dataset metadata')]);
@@ -76,7 +89,9 @@ export async function actorRun(id,read=get) {
   }
   return {source:'apify-run',...inputEvidence(input),status:run.status,build:run.buildNumber,
     startedAt:run.startedAt,finishedAt:run.finishedAt,records,work,
-    chargedEventCounts:run.chargedEventCounts ?? null,usageTotalUsd:run.usageTotalUsd ?? null};
+    billingObservedAt,chargedEventCounts:run.chargedEventCounts ?? null,
+    accountedChargedEventCounts:run.accountedChargedEventCounts ?? null,
+    eventUsage:run.eventUsage ?? null,usageTotalUsd:run.usageTotalUsd ?? null};
 }
 
 function index(rows) {
@@ -186,7 +201,9 @@ export function compare(localDataset,actorDataset) {
   return {paired,sameInput:sameInput ?? null,windowsOverlap:overlap,local:summarize(local,a,aTime),
     actor:{...summarize(actor,b,bTime),queryInput:actor.queryInput ?? null,locallySupported:actor.locallySupported ?? null,
       build:actor.build ?? null,chargedEventCounts:actor.chargedEventCounts ?? null,
-      usageTotalUsd:actor.usageTotalUsd ?? null},shared:shared.length,compared:comparable.length,
+      accountedChargedEventCounts:actor.accountedChargedEventCounts ?? null,eventUsage:actor.eventUsage ?? null,
+      billingObservedAt:actor.billingObservedAt ?? null,usageTotalUsd:actor.usageTotalUsd ?? null},
+    shared:shared.length,compared:comparable.length,
     observationGapsMs:{datedPairs:timeGapsMs.length,minimum:timeGapsMs[0] ?? null,maximum:timeGapsMs.at(-1) ?? null},
     onlyLocal:[...a.products.keys()].filter(id=>!b.products.has(id)),onlyActor:[...b.products.keys()].filter(id=>!a.products.has(id)),
     attributionDifferences:comparable.filter(id=>a.products.get(id).searchQuery!==b.products.get(id).searchQuery)

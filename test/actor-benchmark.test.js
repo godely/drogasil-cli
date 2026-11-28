@@ -103,11 +103,13 @@ test('reads an existing Actor run in bounded pages and retains its observed even
     if (path==='datasets/dataset1/items?format=json&offset=100&limit=15') return records.slice(100);
     assert.fail('Unexpected request '+path);
   };
-  const result=await actorRun('run1',read);
+  const result=await actorRun('run1',read,()=>assert.fail('No recent completion time was reported'));
   assert.deepEqual(result.records,records);
   assert.deepEqual(result.work,{searchPages:3});
   assert.equal(result.chargedEventCounts['item-extracted'],115);
   assert.equal(result.usageTotalUsd,0.23);
+  assert.equal(result.eventUsage,null);
+  assert.equal(result.accountedChargedEventCounts,null);
   for (const [submitted,form,supported] of [
     [{maxItems:115},'omitted',true], [{searchQueries:[]},'empty_array',false],
     [{searchQueries:['  ']},'contains_blank',false], [{searchQueries:'A'},'invalid_type',false],
@@ -127,4 +129,47 @@ test('reads an existing Actor run in bounded pages and retains its observed even
   await assert.rejects(actorRun('run1',p=>p.includes('offset=100')?[]:read(p)),/Incomplete dataset read/);
   await assert.rejects(actorRun('run1',p=>p==='actor-runs/run1'?{data:{actId:'other'}}:read(p)),/different Actor/);
   await assert.rejects(actorRun('run1',p=>p==='actor-runs/run1'?{data:{actId:'actor1',status:'RUNNING'}}:read(p)),/still active/);
+});
+
+test('refreshes a newly finished Actor run once and reports the latest billing observation',async()=>{
+  const {actorRun}=await import('../scripts/benchmark/actor.mjs');
+  const finishedAt=new Date().toISOString();
+  const base={actId:'actor1',status:'FAILED',defaultKeyValueStoreId:'bucket1',defaultDatasetId:'dataset1',finishedAt};
+  const reported={'item-extracted':1,'run-started':1};
+  const accounted={'run-started':1};
+  const costs={'run-started':{eventTitle:'Run started',eventTotalUsd:0.005}};
+  let reads=0,waits=0;
+  const read=async (path,label)=>{
+    if (label==='Actor metadata') return {data:{id:'actor1'}};
+    if (label==='Run metadata') {
+      reads++;
+      return {data:reads===1 ? {...base,usageTotalUsd:0} : {...base,usageTotalUsd:0.005,
+        chargedEventCounts:reported,accountedChargedEventCounts:accounted,eventUsage:costs}};
+    }
+    if (label==='Dataset metadata') return {data:{itemCount:0}};
+    if (label==='INPUT' || label==='RUN_STATS') return null;
+    assert.fail('Unexpected request '+path);
+  };
+  const wait=async ms=>{waits++; assert.ok(ms>0 && ms<=10000);};
+  const snapshot=await actorRun('test1',read,wait);
+  const result=compare([],snapshot).actor;
+  assert.equal(reads,2);
+  assert.equal(waits,1);
+  assert.equal(result.status,'FAILED');
+  assert.equal(result.rows,0);
+  assert.equal(result.usageTotalUsd,0.005);
+  assert.deepEqual(result.chargedEventCounts,reported);
+  assert.deepEqual(result.accountedChargedEventCounts,accounted);
+  assert.deepEqual(result.eventUsage,costs);
+  assert.ok(Number.isFinite(Date.parse(result.billingObservedAt)));
+  assert.equal(compare([],[]).actor.billingObservedAt,null);
+  const oldRun={...base,finishedAt:'2020-01-01T00:00:00Z',eventUsage:{},accountedChargedEventCounts:{}};
+  const old=await actorRun('test1',(path,label)=>label==='Run metadata' ? {data:oldRun} : read(path,label),
+    ()=>assert.fail('Older runs can be read immediately'));
+  assert.equal(old.usageTotalUsd,null);
+  assert.deepEqual(old.eventUsage,{});
+  assert.deepEqual(old.accountedChargedEventCounts,{});
+  let seen=0;
+  await assert.rejects(actorRun('test1',(path,label)=>label==='Run metadata'
+    ? {data:++seen===1 ? base : {...base,status:'RUNNING'}} : read(path,label),wait),/still active/);
 });

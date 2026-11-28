@@ -48,6 +48,8 @@ For completed Actor runs, `actor.queryInput` distinguishes omitted search terms,
 
 `order.positionChanges` reports the one-based position of each uniquely matched product whose row moved between exports. `order.sameRelativeOrder` compares the sequence of those shared products. For example, a product present on only one side can shift several row numbers while the shared products stay in the same order. Relative order requires at least two uniquely matched products and is otherwise reported as null.
 
+The report preserves Apify's total in `actor.usageTotalUsd`, its event counts in `chargedEventCounts`, the counts already accounted for billing in `accountedChargedEventCounts`, and the reported USD breakdown in `eventUsage`. When a run has just ended, the reader fetches its metadata again once the run has been finished for about ten seconds. `billingObservedAt` records when the metadata was read. A failed run can have charges, and an unavailable total stays unknown even if some event data is visible. [Apify run metadata](https://docs.apify.com/api/v2/actor-run-get)
+
 ## Reproduction
 
 Use the same SKU to compare product identity. Observe online offers in the same session and record seller, collection time and offer conditions. Exercise brand-only and brand-plus-generic queries, a mixed basket, an ambiguous name, a presentation conflict, a no-stock response, and a fixed-branch lookup. Supply test origins at runtime. Compare counts, product IDs and stock status independently of fluctuating quantities. Record tool calls separately from upstream requests. Report missing data and unauthenticated runs explicitly.
