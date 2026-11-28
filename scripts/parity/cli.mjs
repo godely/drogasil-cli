@@ -39,6 +39,20 @@ for (const [label, args, expected, fixture] of [
 ]) {
   if (run(args, fixture).status !== expected) gaps.push('exit: ' + label);
 }
+if (process.argv.includes('--candidate') || process.argv.includes('--strict')) {
+  for (const limit of ['1','51','100','1000']) {
+    // The second page avoids first-page spelling suggestions. The source is empty.
+    const args=['search','1234567','--page','2','--limit',limit];
+    for(const suffix of [[],['--json']]) {
+      const page=run([...args,...suffix]);
+      if(page.status!==0) gaps.push('search: completed empty page, limit '+limit+(suffix.length?' JSON':' terminal'));
+      else if(suffix.length) {
+        const value=JSON.parse(page.stdout);
+        assert.deepEqual(Array.isArray(value)?value:value.hits,[]);
+      }
+    }
+  }
+}
 const batch = run(['product', '999999999','999999998','999999999','--json']);
 if (batch.status !== 3 || JSON.stringify(JSON.parse(batch.stdout || 'null')) !== '[null,null,null]') gaps.push('product: ordered missing slots');
 gaps.sort();

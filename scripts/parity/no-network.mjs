@@ -6,6 +6,7 @@ globalThis.fetch = async (url, init) => {
     const slots = JSON.parse(init.body).requests.map(() => null);
     return Response.json({ results: slots });
   }
+  if (target.pathname.endsWith('/queries')) return Response.json({results:[{hits:[],page:0,nbHits:0,nbPages:0,facets:{}}]});
   if (target.pathname.endsWith('/products/search')) return Response.json([]);
   throw new Error('Unexpected lookup during CLI parity check');
 };
