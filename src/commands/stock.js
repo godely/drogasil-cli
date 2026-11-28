@@ -1,7 +1,7 @@
 import { searchStockWindows, stockQuantity } from '../api/index.js';
 import { acceptExpansion, describeRange } from './stock-range.js';
 import { parseCoords } from '../geo.js';
-import { printJson, table, formatKm, formatAddress, formatHours } from '../format.js';
+import { optionError, printJson, table, formatKm, formatAddress, formatHours } from '../format.js';
 
 export const usage = `Usage: drogasil stock <sku> (--lat LAT --lon LON | --cep CEP [--max-branches N]) [--min-qty N | --all] [--expand] [--json]
 
@@ -26,12 +26,8 @@ export const options = {
   'max-branches': { type: 'string' },
 };
 
-function usageError(message) {
-  process.stderr.write(`drogasil: ${message}\n\n${usage}\n`);
-  return 1;
-}
-
 export async function run(positionals, values) {
+  const usageError = message => optionError(message, values.json, `drogasil: ${message}\n\n${usage}`);
   const sku = positionals[0]?.trim();
   const hasPoint = values.lat != null || values.lon != null;
   const hasCep = values.cep != null;
